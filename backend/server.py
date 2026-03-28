@@ -1,4 +1,5 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Query
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -6,10 +7,13 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List
+from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone
-
+import pdfplumber
+import io
+import re
+from collections import defaultdict
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -25,46 +29,530 @@ app = FastAPI()
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
-
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
+# Models
+class Account(BaseModel):
+    model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    name: str
+    account_type: str  # credit_card, bank, investment, cash
+    start_balance: float = 0.0
+    current_balance: float = 0.0
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
+class AccountCreate(BaseModel):
+    name: str
+    account_type: str
+    start_balance: float = 0.0
 
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
-async def root():
-    return {"message": "Hello World"}
+class Category(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    category_type: str  # income, expense
+    color: str = "#5C745A"
+    is_default: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
+class CategoryCreate(BaseModel):
+    name: str
+    category_type: str
+    color: str = "#5C745A"
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
+class Transaction(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    account_id: str
+    date: str
+    description: str
+    amount: float
+    transaction_type: str  # credit, debit
+    category_id: Optional[str] = None
+    is_transfer: bool = False
+    transfer_pair_id: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class TransactionCreate(BaseModel):
+    account_id: str
+    date: str
+    description: str
+    amount: float
+    transaction_type: str
+    category_id: Optional[str] = None
+    notes: Optional[str] = None
+
+class TransferCreate(BaseModel):
+    from_account_id: str
+    to_account_id: str
+    amount: float
+    date: str
+    description: str = "Transfer"
+
+# Default categories
+DEFAULT_CATEGORIES = [
+    {"name": "Salary", "category_type": "income", "color": "#5C745A", "is_default": True},
+    {"name": "Investment Returns", "category_type": "income", "color": "#5C745A", "is_default": True},
+    {"name": "Food & Dining", "category_type": "expense", "color": "#C06B52", "is_default": True},
+    {"name": "Shopping", "category_type": "expense", "color": "#C06B52", "is_default": True},
+    {"name": "Transportation", "category_type": "expense", "color": "#D4A373", "is_default": True},
+    {"name": "Bills & Utilities", "category_type": "expense", "color": "#D4A373", "is_default": True},
+    {"name": "Entertainment", "category_type": "expense", "color": "#7CA1A6", "is_default": True},
+    {"name": "Healthcare", "category_type": "expense", "color": "#D4A373", "is_default": True},
+    {"name": "Transfer", "category_type": "expense", "color": "#78716C", "is_default": True},
+    {"name": "Other", "category_type": "expense", "color": "#A8A29E", "is_default": True},
+]
+
+# Initialize default categories
+@api_router.post("/init")
+async def initialize_defaults():
+    # Check if categories exist
+    existing = await db.categories.count_documents({})
+    if existing == 0:
+        for cat_data in DEFAULT_CATEGORIES:
+            cat = Category(**cat_data)
+            doc = cat.model_dump()
+            doc['created_at'] = doc['created_at'].isoformat()
+            await db.categories.insert_one(doc)
+    return {"message": "Defaults initialized"}
+
+# Account endpoints
+@api_router.post("/accounts", response_model=Account)
+async def create_account(account: AccountCreate):
+    acc = Account(**account.model_dump(), current_balance=account.start_balance)
+    doc = acc.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.accounts.insert_one(doc)
+    return acc
+
+@api_router.get("/accounts", response_model=List[Account])
+async def get_accounts():
+    accounts = await db.accounts.find({}, {"_id": 0}).to_list(1000)
+    for acc in accounts:
+        if isinstance(acc['created_at'], str):
+            acc['created_at'] = datetime.fromisoformat(acc['created_at'])
+    return accounts
+
+@api_router.put("/accounts/{account_id}", response_model=Account)
+async def update_account(account_id: str, account: AccountCreate):
+    update_data = account.model_dump()
+    result = await db.accounts.find_one_and_update(
+        {"id": account_id},
+        {"$set": update_data},
+        return_document=True
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Account not found")
+    if '_id' in result:
+        del result['_id']
+    if isinstance(result['created_at'], str):
+        result['created_at'] = datetime.fromisoformat(result['created_at'])
+    return Account(**result)
+
+@api_router.delete("/accounts/{account_id}")
+async def delete_account(account_id: str):
+    result = await db.accounts.delete_one({"id": account_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Account not found")
+    # Also delete associated transactions
+    await db.transactions.delete_many({"account_id": account_id})
+    return {"message": "Account deleted"}
+
+# Category endpoints
+@api_router.post("/categories", response_model=Category)
+async def create_category(category: CategoryCreate):
+    cat = Category(**category.model_dump())
+    doc = cat.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.categories.insert_one(doc)
+    return cat
+
+@api_router.get("/categories", response_model=List[Category])
+async def get_categories():
+    categories = await db.categories.find({}, {"_id": 0}).to_list(1000)
+    for cat in categories:
+        if isinstance(cat['created_at'], str):
+            cat['created_at'] = datetime.fromisoformat(cat['created_at'])
+    return categories
+
+@api_router.put("/categories/{category_id}", response_model=Category)
+async def update_category(category_id: str, category: CategoryCreate):
+    update_data = category.model_dump()
+    result = await db.categories.find_one_and_update(
+        {"id": category_id},
+        {"$set": update_data},
+        return_document=True
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Category not found")
+    if '_id' in result:
+        del result['_id']
+    if isinstance(result['created_at'], str):
+        result['created_at'] = datetime.fromisoformat(result['created_at'])
+    return Category(**result)
+
+@api_router.delete("/categories/{category_id}")
+async def delete_category(category_id: str):
+    # Check if it's a default category
+    cat = await db.categories.find_one({"id": category_id})
+    if cat and cat.get('is_default'):
+        raise HTTPException(status_code=400, detail="Cannot delete default category")
+    result = await db.categories.delete_one({"id": category_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Category not found")
+    return {"message": "Category deleted"}
+
+# Transaction endpoints
+@api_router.post("/transactions", response_model=Transaction)
+async def create_transaction(transaction: TransactionCreate):
+    txn = Transaction(**transaction.model_dump())
+    doc = txn.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.transactions.insert_one(doc)
     
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
+    # Update account balance
+    account = await db.accounts.find_one({"id": transaction.account_id})
+    if account:
+        balance_change = transaction.amount if transaction.transaction_type == "credit" else -transaction.amount
+        await db.accounts.update_one(
+            {"id": transaction.account_id},
+            {"$set": {"current_balance": account['current_balance'] + balance_change}}
+        )
     
-    return status_checks
+    return txn
+
+@api_router.get("/transactions", response_model=List[Transaction])
+async def get_transactions(
+    account_id: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
+):
+    query = {}
+    if account_id:
+        query["account_id"] = account_id
+    if start_date and end_date:
+        query["date"] = {"$gte": start_date, "$lte": end_date}
+    
+    transactions = await db.transactions.find(query, {"_id": 0}).sort("date", -1).to_list(10000)
+    for txn in transactions:
+        if isinstance(txn['created_at'], str):
+            txn['created_at'] = datetime.fromisoformat(txn['created_at'])
+    return transactions
+
+@api_router.put("/transactions/{transaction_id}", response_model=Transaction)
+async def update_transaction(transaction_id: str, transaction: TransactionCreate):
+    # Get old transaction to revert balance
+    old_txn = await db.transactions.find_one({"id": transaction_id})
+    if not old_txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    
+    # Revert old balance change
+    old_balance_change = old_txn['amount'] if old_txn['transaction_type'] == "credit" else -old_txn['amount']
+    account = await db.accounts.find_one({"id": old_txn['account_id']})
+    if account:
+        await db.accounts.update_one(
+            {"id": old_txn['account_id']},
+            {"$set": {"current_balance": account['current_balance'] - old_balance_change}}
+        )
+    
+    # Update transaction
+    update_data = transaction.model_dump()
+    result = await db.transactions.find_one_and_update(
+        {"id": transaction_id},
+        {"$set": update_data},
+        return_document=True
+    )
+    
+    # Apply new balance change
+    new_balance_change = transaction.amount if transaction.transaction_type == "credit" else -transaction.amount
+    account = await db.accounts.find_one({"id": transaction.account_id})
+    if account:
+        await db.accounts.update_one(
+            {"id": transaction.account_id},
+            {"$set": {"current_balance": account['current_balance'] + new_balance_change}}
+        )
+    
+    if '_id' in result:
+        del result['_id']
+    if isinstance(result['created_at'], str):
+        result['created_at'] = datetime.fromisoformat(result['created_at'])
+    return Transaction(**result)
+
+@api_router.delete("/transactions/{transaction_id}")
+async def delete_transaction(transaction_id: str):
+    txn = await db.transactions.find_one({"id": transaction_id})
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    
+    # Revert balance change
+    balance_change = txn['amount'] if txn['transaction_type'] == "credit" else -txn['amount']
+    account = await db.accounts.find_one({"id": txn['account_id']})
+    if account:
+        await db.accounts.update_one(
+            {"id": txn['account_id']},
+            {"$set": {"current_balance": account['current_balance'] - balance_change}}
+        )
+    
+    await db.transactions.delete_one({"id": transaction_id})
+    return {"message": "Transaction deleted"}
+
+# Transfer endpoints
+@api_router.post("/transfers")
+async def create_transfer(transfer: TransferCreate):
+    transfer_id = str(uuid.uuid4())
+    
+    # Get transfer category
+    transfer_cat = await db.categories.find_one({"name": "Transfer"})
+    transfer_cat_id = transfer_cat['id'] if transfer_cat else None
+    
+    # Create debit transaction from source account
+    debit_txn = Transaction(
+        account_id=transfer.from_account_id,
+        date=transfer.date,
+        description=f"{transfer.description} (to account)",
+        amount=transfer.amount,
+        transaction_type="debit",
+        category_id=transfer_cat_id,
+        is_transfer=True,
+        transfer_pair_id=transfer_id
+    )
+    
+    # Create credit transaction to destination account
+    credit_txn = Transaction(
+        account_id=transfer.to_account_id,
+        date=transfer.date,
+        description=f"{transfer.description} (from account)",
+        amount=transfer.amount,
+        transaction_type="credit",
+        category_id=transfer_cat_id,
+        is_transfer=True,
+        transfer_pair_id=transfer_id
+    )
+    
+    # Insert both transactions
+    debit_doc = debit_txn.model_dump()
+    debit_doc['created_at'] = debit_doc['created_at'].isoformat()
+    await db.transactions.insert_one(debit_doc)
+    
+    credit_doc = credit_txn.model_dump()
+    credit_doc['created_at'] = credit_doc['created_at'].isoformat()
+    await db.transactions.insert_one(credit_doc)
+    
+    # Update balances
+    from_account = await db.accounts.find_one({"id": transfer.from_account_id})
+    if from_account:
+        await db.accounts.update_one(
+            {"id": transfer.from_account_id},
+            {"$set": {"current_balance": from_account['current_balance'] - transfer.amount}}
+        )
+    
+    to_account = await db.accounts.find_one({"id": transfer.to_account_id})
+    if to_account:
+        await db.accounts.update_one(
+            {"id": transfer.to_account_id},
+            {"$set": {"current_balance": to_account['current_balance'] + transfer.amount}}
+        )
+    
+    return {"message": "Transfer created", "transfer_id": transfer_id}
+
+# Auto-detect transfers
+@api_router.post("/detect-transfers")
+async def detect_transfers():
+    # Get all non-transfer transactions
+    all_txns = await db.transactions.find({"is_transfer": False}, {"_id": 0}).to_list(10000)
+    
+    matched_pairs = []
+    processed_ids = set()
+    
+    # Group by date and amount
+    for i, txn1 in enumerate(all_txns):
+        if txn1['id'] in processed_ids:
+            continue
+            
+        for txn2 in all_txns[i+1:]:
+            if txn2['id'] in processed_ids:
+                continue
+                
+            # Check if amounts match and types are opposite
+            if (abs(txn1['amount'] - txn2['amount']) < 0.01 and
+                txn1['transaction_type'] != txn2['transaction_type'] and
+                txn1['date'] == txn2['date'] and
+                txn1['account_id'] != txn2['account_id']):
+                
+                matched_pairs.append({
+                    "txn1": txn1,
+                    "txn2": txn2,
+                    "amount": txn1['amount'],
+                    "date": txn1['date']
+                })
+                processed_ids.add(txn1['id'])
+                processed_ids.add(txn2['id'])
+                break
+    
+    return {"potential_transfers": matched_pairs, "count": len(matched_pairs)}
+
+# Mark transactions as transfer
+@api_router.post("/mark-as-transfer")
+async def mark_as_transfer(txn_ids: List[str]):
+    if len(txn_ids) != 2:
+        raise HTTPException(status_code=400, detail="Need exactly 2 transaction IDs")
+    
+    transfer_id = str(uuid.uuid4())
+    transfer_cat = await db.categories.find_one({"name": "Transfer"})
+    transfer_cat_id = transfer_cat['id'] if transfer_cat else None
+    
+    for txn_id in txn_ids:
+        await db.transactions.update_one(
+            {"id": txn_id},
+            {"$set": {
+                "is_transfer": True,
+                "transfer_pair_id": transfer_id,
+                "category_id": transfer_cat_id
+            }}
+        )
+    
+    return {"message": "Transactions marked as transfer"}
+
+# Analytics endpoints
+@api_router.get("/analytics/summary")
+async def get_analytics_summary(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
+):
+    query = {}
+    if start_date and end_date:
+        query["date"] = {"$gte": start_date, "$lte": end_date}
+    
+    transactions = await db.transactions.find(query, {"_id": 0}).to_list(10000)
+    categories = await db.categories.find({}, {"_id": 0}).to_list(1000)
+    accounts = await db.accounts.find({}, {"_id": 0}).to_list(1000)
+    
+    # Calculate totals
+    total_income = sum(t['amount'] for t in transactions if t['transaction_type'] == 'credit' and not t.get('is_transfer', False))
+    total_expense = sum(t['amount'] for t in transactions if t['transaction_type'] == 'debit' and not t.get('is_transfer', False))
+    
+    # Category breakdown
+    category_map = {c['id']: c for c in categories}
+    category_spending = defaultdict(float)
+    
+    for txn in transactions:
+        if txn.get('category_id') and not txn.get('is_transfer', False):
+            category_spending[txn['category_id']] += txn['amount']
+    
+    category_breakdown = [
+        {
+            "category": category_map[cat_id]['name'],
+            "amount": amount,
+            "color": category_map[cat_id].get('color', '#5C745A'),
+            "type": category_map[cat_id]['category_type']
+        }
+        for cat_id, amount in category_spending.items()
+        if cat_id in category_map
+    ]
+    
+    # Monthly trend
+    monthly_data = defaultdict(lambda: {"income": 0, "expense": 0})
+    for txn in transactions:
+        if not txn.get('is_transfer', False):
+            month_key = txn['date'][:7]  # YYYY-MM
+            if txn['transaction_type'] == 'credit':
+                monthly_data[month_key]['income'] += txn['amount']
+            else:
+                monthly_data[month_key]['expense'] += txn['amount']
+    
+    monthly_trend = [
+        {"month": month, "income": data['income'], "expense": data['expense']}
+        for month, data in sorted(monthly_data.items())
+    ]
+    
+    # Account balances
+    account_balances = [
+        {
+            "name": acc['name'],
+            "balance": acc['current_balance'],
+            "type": acc['account_type']
+        }
+        for acc in accounts
+    ]
+    
+    return {
+        "total_income": total_income,
+        "total_expense": total_expense,
+        "net_savings": total_income - total_expense,
+        "category_breakdown": category_breakdown,
+        "monthly_trend": monthly_trend,
+        "account_balances": account_balances
+    }
+
+# PDF Upload endpoint
+@api_router.post("/upload-statement")
+async def upload_statement(file: UploadFile = File(...), account_id: str = Query(...)):
+    if not file.filename.endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+    
+    try:
+        contents = await file.read()
+        pdf_file = io.BytesIO(contents)
+        
+        # Extract text from PDF
+        text_content = ""
+        with pdfplumber.open(pdf_file) as pdf:
+            for page in pdf.pages:
+                text_content += page.extract_text() + "\n"
+        
+        # For MVP, return the extracted text for manual review
+        # In production, implement parsing logic based on statement format
+        return {
+            "message": "PDF processed",
+            "text_preview": text_content[:1000],
+            "note": "PDF parsing is basic. Please add transactions manually or use CSV import."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
+
+# CSV Import endpoint
+@api_router.post("/import-csv")
+async def import_csv(file: UploadFile = File(...), account_id: str = Query(...)):
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="Only CSV files are supported")
+    
+    try:
+        contents = await file.read()
+        csv_text = contents.decode('utf-8')
+        lines = csv_text.strip().split('\n')
+        
+        if len(lines) < 2:
+            raise HTTPException(status_code=400, detail="CSV file is empty or invalid")
+        
+        # Expected format: date,description,amount,type (credit/debit)
+        imported_count = 0
+        for line in lines[1:]:
+            parts = line.split(',', 3)
+            if len(parts) >= 4:
+                date, description, amount, txn_type = parts
+                txn = Transaction(
+                    account_id=account_id,
+                    date=date.strip(),
+                    description=description.strip(),
+                    amount=float(amount.strip()),
+                    transaction_type=txn_type.strip().lower()
+                )
+                doc = txn.model_dump()
+                doc['created_at'] = doc['created_at'].isoformat()
+                await db.transactions.insert_one(doc)
+                
+                # Update balance
+                account = await db.accounts.find_one({"id": account_id})
+                if account:
+                    balance_change = float(amount.strip()) if txn_type.strip().lower() == "credit" else -float(amount.strip())
+                    await db.accounts.update_one(
+                        {"id": account_id},
+                        {"$set": {"current_balance": account['current_balance'] + balance_change}}
+                    )
+                imported_count += 1
+        
+        return {"message": f"Imported {imported_count} transactions"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error importing CSV: {str(e)}")
 
 # Include the router in the main app
 app.include_router(api_router)
