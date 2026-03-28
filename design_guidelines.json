@@ -1,0 +1,100 @@
+{
+  "theme": "light",
+  "archetype": "Organic & Earthy",
+  "typography": {
+    "fonts": {
+      "heading": "Manrope",
+      "body": "IBM Plex Sans",
+      "mono": "IBM Plex Mono"
+    },
+    "sizes": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tight",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight",
+      "h3": "text-xl sm:text-2xl tracking-tight",
+      "h4": "text-lg sm:text-xl",
+      "body": "text-base leading-relaxed",
+      "small": "text-sm",
+      "label": "text-xs tracking-[0.2em] uppercase"
+    }
+  },
+  "colors": {
+    "background": "#F9F8F6",
+    "surface": "#FFFFFF",
+    "primary": "#5C745A",
+    "secondary": "#C06B52",
+    "accent": "#D4A373",
+    "text": {
+      "primary": "#1C1917",
+      "secondary": "#78716C",
+      "disabled": "#A8A29E"
+    },
+    "border": {
+      "default": "#E5E2DC",
+      "hover": "#D6D3CD"
+    },
+    "status": {
+      "success": "#5C745A",
+      "error": "#C06B52",
+      "warning": "#D4A373",
+      "info": "#7CA1A6"
+    }
+  },
+  "layout": {
+    "strategy": "Control Room Grid",
+    "grid": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6",
+    "spacing_scale": "p-1, p-2, p-4, p-6, p-8, p-12",
+    "container_padding": "p-6",
+    "radius": "rounded-lg"
+  },
+  "components": {
+    "header": {
+      "style": "Glassmorphism",
+      "classes": "sticky top-0 z-50 backdrop-blur-xl bg-[#F9F8F6]/70 border-b border-[#E5E2DC] shadow-sm"
+    },
+    "cards": {
+      "style": "Neumorphism Tactile Variant",
+      "classes": "bg-white border border-[#E5E2DC] rounded-lg p-6 shadow-sm hover:-translate-y-1 hover:shadow-lg transition-all duration-200"
+    },
+    "buttons": {
+      "primary": "bg-[#5C745A] text-white hover:bg-[#475F45] focus:ring-2 focus:ring-[#5C745A]/50 rounded-lg",
+      "secondary": "bg-[#F9F8F6] text-[#1C1917] hover:bg-[#E5E2DC] border border-[#E5E2DC] focus:ring-2 focus:ring-[#E5E2DC]/50 rounded-lg",
+      "danger": "bg-[#C06B52] text-white hover:bg-[#A35943] focus:ring-2 focus:ring-[#C06B52]/50 rounded-lg"
+    },
+    "charts": {
+      "library": "Recharts with Shadcn Chart Components",
+      "guidelines": "Use accessible, color-blind friendly palettes. Prefer #5C745A for income/assets and #C06B52 for expenses/liabilities."
+    }
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "installation": "yarn add @phosphor-icons/react"
+  },
+  "media": {
+    "images": [
+      {
+        "category": "onboarding_bg",
+        "url": "https://images.pexels.com/photos/7821708/pexels-photo-7821708.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Hands holding financial documents with calculator and laptop on office desk, business analysis scene. Use for onboarding or empty state background."
+      }
+    ]
+  },
+  "animations": {
+    "hover": "transition-all duration-200 ease-in-out",
+    "list_stagger": "framer-motion staggered entrance for transaction lists"
+  },
+  "accessibility": {
+    "contrast_ratio": "Minimum 4.5:1 for normal text, 3:1 for large text against background",
+    "testing": "All interactive elements MUST include a data-testid attribute in kebab-case (e.g., data-testid='upload-statement-button')"
+  },
+  "instructions_to_main_agent": [
+    "Use Manrope for all headings and IBM Plex Sans for body text.",
+    "Implement the 'Control Room Grid' layout for the dashboard with gap-6.",
+    "Cards should have a flat white background, 1px subtle border, and a slight lift (-translate-y-1) on hover with a shadow-lg.",
+    "Use Shadcn UI components for dropdowns, selects, tables, and modals.",
+    "Implement the chart components using Shadcn UI's chart primitives (Recharts).",
+    "Ensure the header is sticky with a glassmorphism effect (backdrop-blur-xl bg-[#F9F8F6]/70).",
+    "Include data-testid on every button, link, form input, and key informational element.",
+    "Colors: #5C745A (Moss Green) for positive/income, #C06B52 (Terracotta) for expenses/negative.",
+    "Use Phosphor icons for a clean, dense dashboard look."
+  ]
+}
