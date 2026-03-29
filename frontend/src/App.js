@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { ThemeProvider, useTheme, THEMES } from './contexts/ThemeContext';
+import { ThemeProvider } from './contexts/ThemeContext';
 import Login from './pages/Login';
 import AuthCallback from './pages/AuthCallback';
 import Dashboard from './pages/Dashboard';
@@ -11,7 +11,7 @@ import Upload from './pages/Upload';
 import Analytics from './pages/Analytics';
 import Categories from './pages/Categories';
 import Settings from './pages/Settings';
-import { House, CreditCard, ArrowsLeftRight, UploadSimple, ChartLine, Tag, SignOut, List, Gear, Palette } from '@phosphor-icons/react';
+import { House, CreditCard, ArrowsLeftRight, UploadSimple, ChartLine, Tag, SignOut, List, Gear } from '@phosphor-icons/react';
 import './App.css';
 
 const NAV_ITEMS = [
@@ -41,49 +41,6 @@ function ProtectedRoute({ children }) {
   }
 
   return children;
-}
-
-function ThemePicker() {
-  const { theme, setTheme, themes } = useTheme();
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen(!open)}
-        className="p-2 rounded-lg transition-colors"
-        style={{ color: 'var(--app-nav-text)' }}
-        data-testid="theme-toggle-btn"
-        title="Change theme"
-      >
-        <Palette size={20} />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 mb-2 p-2 rounded-xl shadow-xl border z-50 min-w-[160px]"
-            style={{ background: 'var(--app-card-bg)', borderColor: 'var(--app-card-border)' }}>
-            {Object.entries(themes).map(([key, t]) => (
-              <button
-                key={key}
-                onClick={() => { setTheme(key); setOpen(false); }}
-                data-testid={`theme-${key}`}
-                className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm transition-colors"
-                style={{
-                  background: theme === key ? 'var(--app-nav-active-bg)' : 'transparent',
-                  color: theme === key ? 'var(--app-accent)' : 'var(--app-text-secondary)',
-                }}
-              >
-                <div className="w-5 h-5 rounded-full border-2 shrink-0"
-                  style={{ background: t.preview, borderColor: theme === key ? 'var(--app-accent)' : 'var(--app-card-border)' }} />
-                {t.name}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
 }
 
 function AppLayout() {
@@ -119,10 +76,7 @@ function AppLayout() {
         </nav>
         {user && (
           <div className="p-3 border-t" style={{ borderColor: 'var(--app-sidebar-border)' }}>
-            <div className="flex items-center gap-2 px-2">
-              <ThemePicker />
-            </div>
-            <div className="flex items-center gap-3 px-3 py-2 mt-1">
+            <div className="flex items-center gap-3 px-3 py-2">
               {user.picture ? (
                 <img src={user.picture} alt="" className="w-8 h-8 rounded-full" />
               ) : (
@@ -153,7 +107,6 @@ function AppLayout() {
         style={{ background: 'var(--app-mobile-header)', borderColor: 'var(--app-sidebar-border)' }}>
         <h1 className="text-lg font-bold" style={{ color: 'var(--app-text)' }}>MoneyInsights</h1>
         <div className="flex items-center gap-2">
-          <ThemePicker />
           <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2" style={{ color: 'var(--app-text-secondary)' }} data-testid="mobile-menu-btn">
             <List size={24} />
           </button>

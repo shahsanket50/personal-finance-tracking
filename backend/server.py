@@ -511,31 +511,65 @@ async def detect_transfers(user: Dict = Depends(get_current_user)):
     
     matched_pairs = []
     processed_ids = set()
+
+    def date_close(d1, d2):
+        """Check if dates are within 1 day of each other"""
+        try:
+            from datetime import datetime as dt
+            p1 = dt.strptime(d1, "%Y-%m-%d") if isinstance(d1, str) else d1
+            p2 = dt.strptime(d2, "%Y-%m-%d") if isinstance(d2, str) else d2
+            return abs((p1 - p2).days) <= 1
+        except Exception:
+            return d1 == d2
+
+    transfer_keywords = ["transfer", "neft", "imps", "upi", "rtgs", "fund transfer", "self transfer", "a/c"]
     
-    # Group by date and amount
+    def has_transfer_hint(desc):
+        if not desc:
+            return False
+        lower = desc.lower()
+        return any(kw in lower for kw in transfer_keywords)
+
+    # Sort by confidence: exact date match first, then ±1 day
     for i, txn1 in enumerate(all_txns):
         if txn1['id'] in processed_ids:
             continue
             
+        best_match = None
+        best_score = 0
+
         for txn2 in all_txns[i+1:]:
             if txn2['id'] in processed_ids:
                 continue
-                
-            # Check if amounts match and types are opposite
+            
             if (abs(txn1['amount'] - txn2['amount']) < 0.01 and
                 txn1['transaction_type'] != txn2['transaction_type'] and
-                txn1['date'] == txn2['date'] and
-                txn1['account_id'] != txn2['account_id']):
+                txn1['account_id'] != txn2['account_id'] and
+                date_close(txn1['date'], txn2['date'])):
                 
-                matched_pairs.append({
-                    "txn1": txn1,
-                    "txn2": txn2,
-                    "amount": txn1['amount'],
-                    "date": txn1['date']
-                })
-                processed_ids.add(txn1['id'])
-                processed_ids.add(txn2['id'])
-                break
+                score = 1
+                if txn1['date'] == txn2['date']:
+                    score += 2
+                if has_transfer_hint(txn1.get('description', '')):
+                    score += 1
+                if has_transfer_hint(txn2.get('description', '')):
+                    score += 1
+                
+                if score > best_score:
+                    best_score = score
+                    best_match = txn2
+
+        if best_match:
+            confidence = "high" if best_score >= 3 else "medium"
+            matched_pairs.append({
+                "txn1": txn1,
+                "txn2": best_match,
+                "amount": txn1['amount'],
+                "date": txn1['date'],
+                "confidence": confidence
+            })
+            processed_ids.add(txn1['id'])
+            processed_ids.add(best_match['id'])
     
     return {"potential_transfers": matched_pairs, "count": len(matched_pairs)}
 

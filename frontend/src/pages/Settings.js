@@ -4,11 +4,13 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
-import { EnvelopeSimple, MagnifyingGlass, DownloadSimple, UploadSimple, CloudArrowUp, Check } from '@phosphor-icons/react';
+import { EnvelopeSimple, MagnifyingGlass, DownloadSimple, UploadSimple, CloudArrowUp, Check, Palette, AndroidLogo } from '@phosphor-icons/react';
+import { useTheme } from '../contexts/ThemeContext';
 
 const API = process.env.REACT_APP_BACKEND_URL + '/api';
 
 const Settings = () => {
+  const { theme, setTheme, themes } = useTheme();
   const [emailConfig, setEmailConfig] = useState({ imap_server: 'imap.gmail.com', email_address: '', app_password: '' });
   const [emailConfigured, setEmailConfigured] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -101,7 +103,7 @@ const Settings = () => {
         <h2 className="font-heading text-3xl tracking-tight" style={{ fontFamily: 'Manrope, sans-serif', color: 'var(--app-text)' }}>
           Settings
         </h2>
-        <p className="text-sm mt-1" style={{ color: 'var(--app-text-secondary)' }}>Email scanning, backup & restore</p>
+        <p className="text-sm mt-1" style={{ color: 'var(--app-text-secondary)' }}>Email scanning, backup, appearance & more</p>
       </div>
 
       {/* Email Configuration */}
@@ -235,6 +237,66 @@ const Settings = () => {
               onChange={handleImportBackup}
             />
           </label>
+        </div>
+      </div>
+
+      {/* Theme Picker */}
+      <div className="themed-card rounded-lg p-6">
+        <h3 className="text-lg font-semibold mb-1" style={{ color: 'var(--app-text)' }}>
+          <Palette size={20} className="inline mr-2" style={{ color: 'var(--app-accent)' }} />
+          Appearance
+        </h3>
+        <p className="text-sm mb-4" style={{ color: 'var(--app-text-secondary)' }}>
+          Choose a theme that suits your style. Changes apply instantly.
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+          {Object.entries(themes).map(([key, t]) => (
+            <button
+              key={key}
+              onClick={() => { setTheme(key); toast.success(`Switched to ${t.name} theme`); }}
+              data-testid={`theme-setting-${key}`}
+              className="flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-200"
+              style={{
+                borderColor: theme === key ? 'var(--app-accent)' : 'var(--app-card-border)',
+                background: theme === key ? 'var(--app-accent-light)' : 'var(--app-card-bg)',
+              }}
+            >
+              <div
+                className="w-10 h-10 rounded-full border-2 shadow-sm"
+                style={{ background: t.preview, borderColor: theme === key ? 'var(--app-accent)' : 'var(--app-card-border)' }}
+              />
+              <span className="text-sm font-medium" style={{ color: theme === key ? 'var(--app-accent)' : 'var(--app-text-secondary)' }}>
+                {t.name}
+              </span>
+              {theme === key && (
+                <Check size={14} weight="bold" style={{ color: 'var(--app-accent)' }} />
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Download APK */}
+      <div className="themed-card rounded-lg p-6">
+        <h3 className="text-lg font-semibold mb-1" style={{ color: 'var(--app-text)' }}>
+          <AndroidLogo size={20} className="inline mr-2" style={{ color: 'var(--app-accent)' }} />
+          Mobile App
+        </h3>
+        <p className="text-sm mb-4" style={{ color: 'var(--app-text-secondary)' }}>
+          Install MoneyInsights on your Android device. You can also install as a PWA by using "Add to Home Screen" in your browser.
+        </p>
+        <div className="flex gap-3 flex-wrap items-center">
+          <Button
+            data-testid="download-apk-btn"
+            className="themed-btn-primary rounded-lg"
+            onClick={() => toast.info('APK download will be available soon. For now, use "Add to Home Screen" in your browser for a native-like experience.')}
+          >
+            <DownloadSimple size={18} className="mr-2" />
+            Download APK
+          </Button>
+          <span className="text-xs px-2 py-1 rounded-full" style={{ background: 'var(--app-badge-bg)', color: 'var(--app-text-muted)' }}>
+            Coming soon
+          </span>
         </div>
       </div>
     </div>

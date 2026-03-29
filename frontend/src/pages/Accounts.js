@@ -6,7 +6,7 @@ import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Trash, Pencil, Sparkle } from '@phosphor-icons/react';
+import { Plus, Trash, Pencil, Sparkle, ArrowClockwise, ClockCounterClockwise } from '@phosphor-icons/react';
 import ParserBuilder from './ParserBuilder';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -18,6 +18,10 @@ const Accounts = () => {
   const [parserBuilderOpen, setParserBuilderOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState(null);
   const [editingAccount, setEditingAccount] = useState(null);
+  const [syncingId, setSyncingId] = useState(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyAccount, setHistoryAccount] = useState(null);
+  const [syncHistory, setSyncHistory] = useState([]);
   const [formData, setFormData] = useState({
     name: '',
     account_type: 'bank',
@@ -90,6 +94,32 @@ const Accounts = () => {
   const handleParserSaved = () => {
     loadAccounts();
     toast.success('Parser configured successfully!');
+  };
+
+  const handleSync = async (account) => {
+    setSyncingId(account.id);
+    try {
+      const res = await axios.post(`${API}/accounts/${account.id}/sync`);
+      toast.success(res.data.message);
+      loadAccounts();
+    } catch (err) {
+      const detail = err.response?.data?.detail || 'Sync failed';
+      toast.error(detail);
+    } finally {
+      setSyncingId(null);
+    }
+  };
+
+  const openSyncHistory = async (account) => {
+    setHistoryAccount(account);
+    setHistoryOpen(true);
+    try {
+      const res = await axios.get(`${API}/accounts/${account.id}/sync-history`);
+      setSyncHistory(res.data);
+    } catch {
+      toast.error('Failed to load sync history');
+      setSyncHistory([]);
+    }
   };
 
   return (
@@ -247,6 +277,31 @@ const Accounts = () => {
                   Email filter: {account.email_filter}
                 </div>
               )}
+              {account.email_filter && (
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    size="sm"
+                    data-testid={`sync-account-${account.id}`}
+                    disabled={syncingId === account.id}
+                    onClick={() => handleSync(account)}
+                    className="themed-btn-primary rounded-lg text-xs h-8 px-3"
+                  >
+                    <ArrowClockwise size={14} className={`mr-1.5 ${syncingId === account.id ? 'animate-spin' : ''}`} />
+                    {syncingId === account.id ? 'Syncing...' : 'Sync Email'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    data-testid={`sync-history-${account.id}`}
+                    onClick={() => openSyncHistory(account)}
+                    className="rounded-lg text-xs h-8 px-3 border"
+                    style={{ borderColor: 'var(--app-card-border)', color: 'var(--app-text-secondary)' }}
+                  >
+                    <ClockCounterClockwise size={14} className="mr-1.5" />
+                    History
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -271,6 +326,53 @@ const Accounts = () => {
           <p className="text-sm" style={{ color: 'var(--app-text-muted)' }}>Create your first account to start tracking your finances</p>
         </div>
       )}
+
+      {/* Sync History Dialog */}
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle style={{ color: 'var(--app-text)' }}>
+              Sync History — {historyAccount?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[400px] overflow-y-auto space-y-3">
+            {syncHistory.length === 0 ? (
+              <p className="text-sm py-6 text-center" style={{ color: 'var(--app-text-muted)' }}>
+                No sync history yet. Click "Sync Email" on the account card to start.
+              </p>
+            ) : (
+              syncHistory.map((log, i) => (
+                <div key={i} data-testid={`sync-log-${i}`} className="rounded-lg p-3 border text-sm" style={{ background: 'var(--app-card-bg)', borderColor: 'var(--app-card-border)' }}>
+                  <div className="flex justify-between items-center mb-1.5">
+                    <span className={`text-xs font-semibold uppercase tracking-wide ${log.status === 'success' ? 'text-green-600' : 'text-red-500'}`}>
+                      {log.status}
+                    </span>
+                    <span className="text-xs" style={{ color: 'var(--app-text-muted)' }}>
+                      {new Date(log.synced_at).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex gap-4 text-xs" style={{ color: 'var(--app-text-secondary)' }}>
+                    <span>Imported: <strong style={{ color: 'var(--app-text)' }}>{log.imported}</strong></span>
+                    <span>Skipped: <strong style={{ color: 'var(--app-text)' }}>{log.skipped}</strong></span>
+                  </div>
+                  {log.error && (
+                    <p className="mt-1 text-xs text-red-500">{log.error}</p>
+                  )}
+                  {log.files?.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {log.files.map((f, j) => (
+                        <p key={j} className="text-xs" style={{ color: 'var(--app-text-muted)' }}>
+                          {f.filename} — {f.transactions_imported}/{f.transactions_found} txns
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

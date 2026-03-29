@@ -478,7 +478,16 @@ const Transactions = () => {
                         </div>
                       </div>
                     </div>
-                    <div className="text-xs mt-2" style={{ color: 'var(--app-text-secondary)' }}>Date: {transfer.date}</div>
+                    <div className="text-xs mt-2 flex items-center gap-2" style={{ color: 'var(--app-text-secondary)' }}>
+                      <span>Date: {transfer.date}</span>
+                      {transfer.confidence && (
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                          transfer.confidence === 'high' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                        }`} data-testid={`transfer-confidence-${idx}`}>
+                          {transfer.confidence}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <Button
                     onClick={() => markAsTransfer(transfer.txn1.id, transfer.txn2.id)}
