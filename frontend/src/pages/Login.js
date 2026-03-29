@@ -1,40 +1,17 @@
-import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
-const API = process.env.REACT_APP_BACKEND_URL;
-const GOOGLE_AUTH_URL = `https://demobackend.emergentagent.com/auth/v1/env/oauth/google?redirect_url=${encodeURIComponent(API + '/auth/callback')}`;
-
+// REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
 const Login = () => {
-  const { user, exchangeSession } = useAuth();
-  const [processing, setProcessing] = useState(false);
-  const [error, setError] = useState('');
+  const { user } = useAuth();
 
-  useEffect(() => {
-    // Check URL params for session_id (from OAuth callback)
-    const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get('session_id');
-    if (sessionId && !user) {
-      setProcessing(true);
-      exchangeSession(sessionId).then(success => {
-        if (!success) {
-          setError('Authentication failed. Please try again.');
-        }
-        // Clean URL
-        window.history.replaceState({}, '', window.location.pathname);
-        setProcessing(false);
-      });
-    }
-  }, [user, exchangeSession]);
+  const handleGoogleLogin = () => {
+    const redirectUrl = window.location.origin + '/';
+    window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
+  };
 
-  if (processing) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: '#1a1a1a' }}>
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-[#5C745A] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-white/70">Signing you in...</p>
-        </div>
-      </div>
-    );
+  if (user) {
+    window.location.href = '/';
+    return null;
   }
 
   return (
@@ -54,15 +31,9 @@ const Login = () => {
           <h2 className="text-xl font-semibold text-white mb-2">Welcome</h2>
           <p className="text-white/50 text-sm mb-6">Sign in to manage your financial data</p>
 
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg p-3 mb-4" data-testid="login-error">
-              {error}
-            </div>
-          )}
-
-          <a
-            href={GOOGLE_AUTH_URL}
-            className="flex items-center justify-center gap-3 w-full py-3 px-4 rounded-xl font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+          <button
+            onClick={handleGoogleLogin}
+            className="flex items-center justify-center gap-3 w-full py-3 px-4 rounded-xl font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
             style={{ background: '#fff', color: '#1a1a1a' }}
             data-testid="google-login-btn"
           >
@@ -73,7 +44,7 @@ const Login = () => {
               <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
             </svg>
             Continue with Google
-          </a>
+          </button>
 
           <p className="text-white/30 text-xs text-center mt-6">
             Your data is stored securely and never shared with third parties

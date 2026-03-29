@@ -154,19 +154,30 @@ function AppLayout() {
   );
 }
 
+function AppRouter() {
+  const location = useLocation();
+  // CRITICAL: Check URL fragment for session_id synchronously during render
+  // This must happen BEFORE ProtectedRoute runs to prevent race conditions
+  if (location.hash?.includes('session_id=')) {
+    return <AuthCallback />;
+  }
+  return (
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/*" element={
+        <ProtectedRoute>
+          <AppLayout />
+        </ProtectedRoute>
+      } />
+    </Routes>
+  );
+}
+
 function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/auth/callback" element={<AuthCallback />} />
-          <Route path="/*" element={
-            <ProtectedRoute>
-              <AppLayout />
-            </ProtectedRoute>
-          } />
-        </Routes>
+        <AppRouter />
       </AuthProvider>
     </BrowserRouter>
   );

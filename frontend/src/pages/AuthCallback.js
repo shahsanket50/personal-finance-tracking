@@ -1,40 +1,36 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 const AuthCallback = () => {
   const navigate = useNavigate();
   const { exchangeSession } = useAuth();
-  const [error, setError] = useState('');
+  const hasProcessed = useRef(false);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    // Use ref to prevent double-processing in StrictMode
+    if (hasProcessed.current) return;
+    hasProcessed.current = true;
+
+    // Extract session_id from URL hash fragment
+    const hash = window.location.hash;
+    const params = new URLSearchParams(hash.replace('#', ''));
     const sessionId = params.get('session_id');
 
     if (sessionId) {
       exchangeSession(sessionId).then(success => {
+        // Clear the hash
+        window.history.replaceState({}, '', window.location.pathname);
         if (success) {
           navigate('/', { replace: true });
         } else {
-          setError('Authentication failed');
-          setTimeout(() => navigate('/login', { replace: true }), 2000);
+          navigate('/login', { replace: true });
         }
       });
     } else {
       navigate('/login', { replace: true });
     }
   }, [exchangeSession, navigate]);
-
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: '#1a1a1a' }}>
-        <div className="text-center">
-          <p className="text-red-400">{error}</p>
-          <p className="text-white/50 text-sm mt-2">Redirecting to login...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: '#1a1a1a' }}>

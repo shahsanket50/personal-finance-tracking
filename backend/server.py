@@ -179,14 +179,6 @@ async def logout(request: Request):
     response.delete_cookie(key="session_token", path="/", samesite="none", secure=True)
     return response
 
-# OAuth callback - redirect from Google Auth back to frontend
-@app.get("/auth/callback")
-async def auth_callback(request: Request):
-    session_id = request.query_params.get("session_id", "")
-    from starlette.responses import RedirectResponse
-    frontend_url = "https://money-insights-82.preview.emergentagent.com"
-    return RedirectResponse(url=f"{frontend_url}/auth/callback?session_id={session_id}")
-
 # Models
 class Account(BaseModel):
     model_config = ConfigDict(extra="ignore")
