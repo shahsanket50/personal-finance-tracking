@@ -87,7 +87,7 @@ const ParserBuilder = ({ account, open, onClose, onSave }) => {
       <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-2xl">
-            <Sparkle size={24} style={{ color: '#5C745A' }} />
+            <Sparkle size={24} style={{ color: 'var(--app-accent)' }} />
             Parser Builder - {account?.name}
           </DialogTitle>
         </DialogHeader>
@@ -112,8 +112,8 @@ const ParserBuilder = ({ account, open, onClose, onSave }) => {
         {/* Step 1: Upload Sample PDF */}
         {step === 1 && (
           <div className="space-y-6">
-            <div className="bg-[#E7F3F0] border border-[#5C745A] rounded-lg p-4">
-              <p className="text-sm" style={{ color: '#2D4A39' }}>
+            <div className="bg-[var(--app-accent-light)] border border-[var(--app-accent)] rounded-lg p-4">
+              <p className="text-sm" style={{ color: 'var(--app-accent-text)' }}>
                 <strong>Upload a sample statement PDF</strong> from this account. We'll extract the text and auto-detect transaction patterns.
               </p>
             </div>
@@ -125,10 +125,10 @@ const ParserBuilder = ({ account, open, onClose, onSave }) => {
                 type="file"
                 accept=".pdf"
                 onChange={(e) => setFile(e.target.files[0])}
-                className="mt-2 block w-full text-sm border border-[#E5E2DC] rounded-lg cursor-pointer p-2"
+                className="mt-2 block w-full text-sm border border-[var(--app-card-border)] rounded-lg cursor-pointer p-2"
               />
               {file && (
-                <p className="mt-2 text-sm" style={{ color: '#5C745A' }}>
+                <p className="mt-2 text-sm" style={{ color: 'var(--app-accent)' }}>
                   Selected: {file.name}
                 </p>
               )}
@@ -143,7 +143,7 @@ const ParserBuilder = ({ account, open, onClose, onSave }) => {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter password if PDF is protected"
               />
-              <p className="text-xs mt-1" style={{ color: '#78716C' }}>
+              <p className="text-xs mt-1" style={{ color: 'var(--app-text-secondary)' }}>
                 We'll save this password for future uploads from this account
               </p>
             </div>
@@ -181,8 +181,8 @@ const ParserBuilder = ({ account, open, onClose, onSave }) => {
               <TabsContent value="transactions" className="space-y-4">
                 {autoTransactions.length > 0 ? (
                   <>
-                    <div className="bg-[#E7F3F0] border border-[#5C745A] rounded-lg p-4">
-                      <p className="text-sm flex items-center gap-2" style={{ color: '#2D4A39' }}>
+                    <div className="bg-[var(--app-accent-light)] border border-[var(--app-accent)] rounded-lg p-4">
+                      <p className="text-sm flex items-center gap-2" style={{ color: 'var(--app-accent-text)' }}>
                         <Check size={18} />
                         <strong>Success!</strong> Auto-detected {autoTransactions.length} transactions
                         {detectedStrategy && <span className="text-xs opacity-75">(strategy: {detectedStrategy.replace('_', ' ')})</span>}
@@ -196,11 +196,11 @@ const ParserBuilder = ({ account, open, onClose, onSave }) => {
 
                     <div className="space-y-2 max-h-96 overflow-y-auto">
                       {autoTransactions.map((txn, idx) => (
-                        <div key={idx} className="border border-[#E5E2DC] rounded-lg p-3 hover:bg-[#F9F8F6]">
+                        <div key={idx} className="border border-[var(--app-card-border)] rounded-lg p-3 hover:bg-[#F9F8F6]">
                           <div className="flex justify-between items-start">
                             <div className="flex-1">
-                              <div className="text-xs" style={{ color: '#78716C' }}>{txn.date}</div>
-                              <div className="font-medium mt-1" style={{ color: '#1C1917' }}>{txn.description}</div>
+                              <div className="text-xs" style={{ color: 'var(--app-text-secondary)' }}>{txn.date}</div>
+                              <div className="font-medium mt-1" style={{ color: 'var(--app-text)' }}>{txn.description}</div>
                             </div>
                             <div className={`text-right font-mono ${txn.type === 'credit' ? 'text-[#5C745A]' : 'text-[#C06B52]'}`}>
                               {txn.type === 'credit' ? '+' : '-'}₹{txn.amount.toFixed(2)}
@@ -220,7 +220,7 @@ const ParserBuilder = ({ account, open, onClose, onSave }) => {
                       </Button>
                       <Button
                         onClick={resetBuilder}
-                        className="bg-[#F9F8F6] text-[#1C1917] hover:bg-[#E5E2DC] border border-[#E5E2DC] rounded-lg"
+                        className="bg-[#F9F8F6] text-[#1C1917] hover:bg-[#E5E2DC] border border-[var(--app-card-border)] rounded-lg"
                       >
                         Try Another PDF
                       </Button>
@@ -236,9 +236,9 @@ const ParserBuilder = ({ account, open, onClose, onSave }) => {
               </TabsContent>
 
               <TabsContent value="text" className="space-y-4">
-                <div className="bg-white border border-[#E5E2DC] rounded-lg p-4">
+                <div className="themed-card border border-[var(--app-card-border)] rounded-lg p-4">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium" style={{ color: '#1C1917' }}>
+                    <span className="text-sm font-medium" style={{ color: 'var(--app-text)' }}>
                       Extracted Text ({extractedText.length} characters)
                     </span>
                     <Button
@@ -246,19 +246,19 @@ const ParserBuilder = ({ account, open, onClose, onSave }) => {
                         navigator.clipboard.writeText(extractedText);
                         toast.success('Text copied to clipboard');
                       }}
-                      className="text-xs bg-[#F9F8F6] text-[#1C1917] hover:bg-[#E5E2DC] border border-[#E5E2DC] rounded-lg"
+                      className="text-xs bg-[#F9F8F6] text-[#1C1917] hover:bg-[#E5E2DC] border border-[var(--app-card-border)] rounded-lg"
                     >
                       Copy
                     </Button>
                   </div>
-                  <pre className="text-xs bg-[#F9F8F6] p-4 rounded border border-[#E5E2DC] max-h-96 overflow-auto font-mono whitespace-pre-wrap">
+                  <pre className="text-xs bg-[#F9F8F6] p-4 rounded border border-[var(--app-card-border)] max-h-96 overflow-auto font-mono whitespace-pre-wrap">
                     {extractedText}
                   </pre>
                 </div>
 
                 <Button
                   onClick={resetBuilder}
-                  className="w-full bg-[#F9F8F6] text-[#1C1917] hover:bg-[#E5E2DC] border border-[#E5E2DC] rounded-lg"
+                  className="w-full bg-[#F9F8F6] text-[#1C1917] hover:bg-[#E5E2DC] border border-[var(--app-card-border)] rounded-lg"
                 >
                   Try Another PDF
                 </Button>

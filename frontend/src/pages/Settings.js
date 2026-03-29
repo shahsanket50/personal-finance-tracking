@@ -98,19 +98,19 @@ const Settings = () => {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="font-heading text-3xl tracking-tight" style={{ fontFamily: 'Manrope, sans-serif', color: '#1C1917' }}>
+        <h2 className="font-heading text-3xl tracking-tight" style={{ fontFamily: 'Manrope, sans-serif', color: 'var(--app-text)' }}>
           Settings
         </h2>
-        <p className="text-sm mt-1" style={{ color: '#78716C' }}>Email scanning, backup & restore</p>
+        <p className="text-sm mt-1" style={{ color: 'var(--app-text-secondary)' }}>Email scanning, backup & restore</p>
       </div>
 
       {/* Email Configuration */}
-      <div className="bg-white border border-[#E5E2DC] rounded-lg p-6">
-        <h3 className="text-lg font-semibold mb-1" style={{ color: '#1C1917' }}>
-          <EnvelopeSimple size={20} className="inline mr-2" style={{ color: '#5C745A' }} />
+      <div className="themed-card rounded-lg p-6">
+        <h3 className="text-lg font-semibold mb-1" style={{ color: 'var(--app-text)' }}>
+          <EnvelopeSimple size={20} className="inline mr-2" style={{ color: 'var(--app-accent)' }} />
           Email Auto-Scan
         </h3>
-        <p className="text-sm mb-4" style={{ color: '#78716C' }}>
+        <p className="text-sm mb-4" style={{ color: 'var(--app-text-secondary)' }}>
           Connect your email to automatically download and parse bank statements. Uses IMAP with App Passwords for secure access.
         </p>
 
@@ -138,7 +138,7 @@ const Settings = () => {
               placeholder={emailConfigured ? '••••••••••••' : 'Google App Password'}
               required={!emailConfigured}
             />
-            <p className="text-xs mt-1" style={{ color: '#A8A29E' }}>
+            <p className="text-xs mt-1" style={{ color: 'var(--app-text-muted)' }}>
               Generate at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" className="underline text-blue-500">Google App Passwords</a>. Requires 2FA enabled.
             </p>
           </div>
@@ -156,7 +156,7 @@ const Settings = () => {
               type="submit"
               disabled={saving}
               data-testid="save-email-config-btn"
-              className="bg-[#5C745A] text-white hover:bg-[#475F45] rounded-lg"
+              className="themed-btn-primary rounded-lg"
             >
               {saving ? 'Saving...' : emailConfigured ? 'Update Config' : 'Save Config'}
             </Button>
@@ -176,19 +176,19 @@ const Settings = () => {
         </form>
 
         {emailConfigured && (
-          <div className="mt-3 flex items-center gap-2 text-sm" style={{ color: '#5C745A' }}>
+          <div className="mt-3 flex items-center gap-2 text-sm" style={{ color: 'var(--app-accent)' }}>
             <Check size={16} />
             Email configured. Set email filters on each account, then click "Scan Inbox".
           </div>
         )}
 
         {scanResults && (
-          <div className="mt-4 p-4 bg-[#F9F8F6] rounded-lg border border-[#E5E2DC]">
-            <p className="font-medium text-sm mb-2" style={{ color: '#1C1917' }}>{scanResults.message}</p>
+          <div className="mt-4 p-4 themed-badge rounded-lg border border-[var(--app-card-border)]">
+            <p className="font-medium text-sm mb-2" style={{ color: 'var(--app-text)' }}>{scanResults.message}</p>
             {scanResults.details?.length > 0 && (
               <div className="space-y-1">
                 {scanResults.details.map((d, i) => (
-                  <p key={i} className="text-xs" style={{ color: '#78716C' }}>
+                  <p key={i} className="text-xs" style={{ color: 'var(--app-text-secondary)' }}>
                     {d.account}: {d.file} — {d.imported} imported ({d.found} found)
                   </p>
                 ))}
@@ -199,19 +199,19 @@ const Settings = () => {
       </div>
 
       {/* Backup & Restore */}
-      <div className="bg-white border border-[#E5E2DC] rounded-lg p-6">
-        <h3 className="text-lg font-semibold mb-1" style={{ color: '#1C1917' }}>
-          <CloudArrowUp size={20} className="inline mr-2" style={{ color: '#5C745A' }} />
+      <div className="themed-card rounded-lg p-6">
+        <h3 className="text-lg font-semibold mb-1" style={{ color: 'var(--app-text)' }}>
+          <CloudArrowUp size={20} className="inline mr-2" style={{ color: 'var(--app-accent)' }} />
           Backup & Restore
         </h3>
-        <p className="text-sm mb-4" style={{ color: '#78716C' }}>
+        <p className="text-sm mb-4" style={{ color: 'var(--app-text-secondary)' }}>
           Export all your data as JSON or restore from a previous backup. No data is ever lost.
         </p>
         <div className="flex gap-3 flex-wrap">
           <Button
             onClick={handleExportBackup}
             data-testid="export-backup-settings-btn"
-            className="bg-[#5C745A] text-white hover:bg-[#475F45] rounded-lg"
+            className="themed-btn-primary rounded-lg"
           >
             <DownloadSimple size={18} className="mr-2" />
             Download Backup
@@ -221,7 +221,7 @@ const Settings = () => {
               as="span"
               disabled={importing}
               data-testid="import-backup-btn"
-              className="bg-[#F9F8F6] text-[#1C1917] hover:bg-[#E5E2DC] border border-[#E5E2DC] rounded-lg cursor-pointer"
+              className="themed-badge text-[#1C1917] hover:bg-[#E5E2DC] border border-[var(--app-card-border)] rounded-lg cursor-pointer"
               onClick={() => document.getElementById('backup-file-input').click()}
             >
               <UploadSimple size={18} className="mr-2" />

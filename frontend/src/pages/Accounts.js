@@ -96,16 +96,16 @@ const Accounts = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-heading text-3xl tracking-tight" style={{ fontFamily: 'Manrope, sans-serif', color: '#1C1917' }}>
+          <h2 className="font-heading text-3xl tracking-tight" style={{ fontFamily: 'Manrope, sans-serif', color: 'var(--app-text)' }}>
             Accounts
           </h2>
-          <p className="text-sm mt-1" style={{ color: '#78716C' }}>Manage your financial accounts</p>
+          <p className="text-sm mt-1" style={{ color: 'var(--app-text-secondary)' }}>Manage your financial accounts</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button 
               data-testid="add-account-btn"
-              className="bg-[#5C745A] text-white hover:bg-[#475F45] focus:ring-2 focus:ring-[#5C745A]/50 rounded-lg"
+              className="themed-btn-primary focus:ring-2 focus:ring-[#5C745A]/50 rounded-lg"
               onClick={() => {
                 setEditingAccount(null);
                 setFormData({ name: '', account_type: 'bank', start_balance: 0, email_filter: '' });
@@ -169,12 +169,12 @@ const Accounts = () => {
                   onChange={e => setFormData({...formData, email_filter: e.target.value})}
                   placeholder="e.g., HDFC Bank Statement"
                 />
-                <p className="text-xs mt-1" style={{ color: '#A8A29E' }}>Keyword to match in email subject for auto-importing statements</p>
+                <p className="text-xs mt-1" style={{ color: 'var(--app-text-muted)' }}>Keyword to match in email subject for auto-importing statements</p>
               </div>
               <Button 
                 type="submit" 
                 data-testid="save-account-btn"
-                className="w-full bg-[#5C745A] text-white hover:bg-[#475F45] rounded-lg"
+                className="w-full themed-btn-primary rounded-lg"
               >
                 {editingAccount ? 'Update' : 'Create'} Account
               </Button>
@@ -189,10 +189,10 @@ const Accounts = () => {
           <div 
             key={account.id}
             data-testid={`account-card-${account.id}`}
-            className="bg-white border border-[#E5E2DC] rounded-lg p-6 shadow-sm hover:-translate-y-1 hover:shadow-lg transition-all duration-200"
+            className="themed-card rounded-lg p-6 shadow-sm hover:-translate-y-1 hover:shadow-lg transition-all duration-200"
           >
             <div className="flex justify-between items-start mb-4">
-              <div className="text-xs uppercase tracking-[0.2em]" style={{ color: '#78716C' }}>
+              <div className="text-xs uppercase tracking-[0.2em]" style={{ color: 'var(--app-text-secondary)' }}>
                 {account.account_type.replace('_', ' ')}
               </div>
               <div className="flex gap-2">
@@ -220,24 +220,24 @@ const Accounts = () => {
                 </button>
               </div>
             </div>
-            <h3 className="font-heading text-xl mb-2" style={{ color: '#1C1917' }}>
+            <h3 className="font-heading text-xl mb-2" style={{ color: 'var(--app-text)' }}>
               {account.name}
             </h3>
             <div className="space-y-2">
               <div>
-                <span className="text-xs" style={{ color: '#78716C' }}>Current Balance</span>
-                <div className="font-heading text-2xl" style={{ color: '#5C745A' }}>
+                <span className="text-xs" style={{ color: 'var(--app-text-secondary)' }}>Current Balance</span>
+                <div className="font-heading text-2xl" style={{ color: 'var(--app-accent)' }}>
                   ₹{account.current_balance.toFixed(2)}
                 </div>
               </div>
               <div>
-                <span className="text-xs" style={{ color: '#78716C' }}>Starting Balance</span>
-                <div className="text-sm" style={{ color: '#1C1917' }}>
+                <span className="text-xs" style={{ color: 'var(--app-text-secondary)' }}>Starting Balance</span>
+                <div className="text-sm" style={{ color: 'var(--app-text)' }}>
                   ₹{account.start_balance.toFixed(2)}
                 </div>
               </div>
               {account.custom_parser && (
-                <div className="mt-3 px-2 py-1 bg-[#E7F3F0] border border-[#5C745A] rounded text-xs flex items-center gap-1" style={{ color: '#2D4A39' }}>
+                <div className="mt-3 px-2 py-1 bg-[var(--app-accent-light)] border border-[var(--app-accent)] rounded text-xs flex items-center gap-1" style={{ color: 'var(--app-accent-text)' }}>
                   <Sparkle size={14} weight="fill" />
                   Custom parser configured
                 </div>
@@ -266,9 +266,9 @@ const Accounts = () => {
       )}
 
       {accounts.length === 0 && (
-        <div className="bg-white border border-[#E5E2DC] rounded-lg p-12 text-center">
-          <p className="text-lg mb-2" style={{ color: '#78716C' }}>No accounts yet</p>
-          <p className="text-sm" style={{ color: '#A8A29E' }}>Create your first account to start tracking your finances</p>
+        <div className="themed-card rounded-lg p-12 text-center">
+          <p className="text-lg mb-2" style={{ color: 'var(--app-text-secondary)' }}>No accounts yet</p>
+          <p className="text-sm" style={{ color: 'var(--app-text-muted)' }}>Create your first account to start tracking your finances</p>
         </div>
       )}
     </div>

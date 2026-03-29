@@ -86,7 +86,7 @@ const Analytics = () => {
   };
 
   if (loading) {
-    return <div className="text-center py-12" style={{ color: '#78716C' }}>Loading analytics...</div>;
+    return <div className="text-center py-12" style={{ color: 'var(--app-text-secondary)' }}>Loading analytics...</div>;
   }
 
   const expenseData = analytics?.category_breakdown?.filter(c => c.type === 'expense') || [];
@@ -97,18 +97,18 @@ const Analytics = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-heading text-3xl tracking-tight" style={{ fontFamily: 'Manrope, sans-serif', color: '#1C1917' }}>
+          <h2 className="font-heading text-3xl tracking-tight" style={{ fontFamily: 'Manrope, sans-serif', color: 'var(--app-text)' }}>
             Analytics
           </h2>
-          <p className="text-sm mt-1" style={{ color: '#78716C' }}>Deep dive into your financial patterns</p>
+          <p className="text-sm mt-1" style={{ color: 'var(--app-text-secondary)' }}>Deep dive into your financial patterns</p>
         </div>
       </div>
 
       {/* Period Selection */}
-      <div className="bg-white border border-[#E5E2DC] rounded-lg p-6 shadow-sm">
+      <div className="themed-card rounded-lg p-6 shadow-sm">
         <div className="flex items-center gap-3 mb-4">
-          <CalendarBlank size={20} style={{ color: '#5C745A' }} />
-          <h3 className="font-heading text-lg" style={{ color: '#1C1917' }}>Select Period</h3>
+          <CalendarBlank size={20} style={{ color: 'var(--app-accent)' }} />
+          <h3 className="font-heading text-lg" style={{ color: 'var(--app-text)' }}>Select Period</h3>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
@@ -136,8 +136,8 @@ const Analytics = () => {
                   value={startDate}
                   onChange={e => setStartDate(e.target.value)}
                   data-testid="start-date-input"
-                  className="w-full mt-1 p-2 border border-[#E5E2DC] rounded-lg"
-                  style={{ color: '#1C1917' }}
+                  className="w-full mt-1 p-2 border border-[var(--app-card-border)] rounded-lg"
+                  style={{ color: 'var(--app-text)' }}
                 />
               </div>
               <div>
@@ -147,15 +147,15 @@ const Analytics = () => {
                   value={endDate}
                   onChange={e => setEndDate(e.target.value)}
                   data-testid="end-date-input"
-                  className="w-full mt-1 p-2 border border-[#E5E2DC] rounded-lg"
-                  style={{ color: '#1C1917' }}
+                  className="w-full mt-1 p-2 border border-[var(--app-card-border)] rounded-lg"
+                  style={{ color: 'var(--app-text)' }}
                 />
               </div>
               <div className="flex items-end">
                 <Button
                   onClick={handleCustomDateSubmit}
                   data-testid="apply-date-range-btn"
-                  className="w-full bg-[#5C745A] text-white hover:bg-[#475F45] rounded-lg"
+                  className="w-full themed-btn-primary rounded-lg"
                 >
                   Apply
                 </Button>
@@ -167,26 +167,26 @@ const Analytics = () => {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white border border-[#E5E2DC] rounded-lg p-6 shadow-sm">
-          <div className="text-xs uppercase tracking-[0.2em] mb-2" style={{ color: '#78716C' }}>Total Income</div>
-          <div className="font-heading text-3xl" style={{ color: '#5C745A' }}>
+        <div className="themed-card rounded-lg p-6 shadow-sm">
+          <div className="text-xs uppercase tracking-[0.2em] mb-2" style={{ color: 'var(--app-text-secondary)' }}>Total Income</div>
+          <div className="font-heading text-3xl" style={{ color: 'var(--app-accent)' }}>
             ₹{analytics?.total_income?.toFixed(2) || 0}
           </div>
         </div>
-        <div className="bg-white border border-[#E5E2DC] rounded-lg p-6 shadow-sm">
-          <div className="text-xs uppercase tracking-[0.2em] mb-2" style={{ color: '#78716C' }}>Total Expenses</div>
-          <div className="font-heading text-3xl" style={{ color: '#C06B52' }}>
+        <div className="themed-card rounded-lg p-6 shadow-sm">
+          <div className="text-xs uppercase tracking-[0.2em] mb-2" style={{ color: 'var(--app-text-secondary)' }}>Total Expenses</div>
+          <div className="font-heading text-3xl" style={{ color: 'var(--app-danger)' }}>
             ₹{analytics?.total_expense?.toFixed(2) || 0}
           </div>
         </div>
-        <div className="bg-white border border-[#E5E2DC] rounded-lg p-6 shadow-sm">
-          <div className="text-xs uppercase tracking-[0.2em] mb-2" style={{ color: '#78716C' }}>Net Savings</div>
+        <div className="themed-card rounded-lg p-6 shadow-sm">
+          <div className="text-xs uppercase tracking-[0.2em] mb-2" style={{ color: 'var(--app-text-secondary)' }}>Net Savings</div>
           <div className="font-heading text-3xl" style={{ color: analytics?.net_savings >= 0 ? '#5C745A' : '#C06B52' }}>
             ₹{analytics?.net_savings?.toFixed(2) || 0}
           </div>
         </div>
-        <div className="bg-white border border-[#E5E2DC] rounded-lg p-6 shadow-sm">
-          <div className="text-xs uppercase tracking-[0.2em] mb-2" style={{ color: '#78716C' }}>Savings Rate</div>
+        <div className="themed-card rounded-lg p-6 shadow-sm">
+          <div className="text-xs uppercase tracking-[0.2em] mb-2" style={{ color: 'var(--app-text-secondary)' }}>Savings Rate</div>
           <div className="font-heading text-3xl" style={{ color: '#7CA1A6' }}>
             {analytics?.total_income > 0 ? ((analytics.net_savings / analytics.total_income) * 100).toFixed(1) : 0}%
           </div>
@@ -196,8 +196,8 @@ const Analytics = () => {
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Income vs Expense Pie Charts */}
-        <div className="bg-white border border-[#E5E2DC] rounded-lg p-6 shadow-sm">
-          <h3 className="font-heading text-xl mb-4" style={{ color: '#1C1917' }}>Income Breakdown</h3>
+        <div className="themed-card rounded-lg p-6 shadow-sm">
+          <h3 className="font-heading text-xl mb-4" style={{ color: 'var(--app-text)' }}>Income Breakdown</h3>
           {incomeData.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
@@ -219,12 +219,12 @@ const Analytics = () => {
               </PieChart>
             </ResponsiveContainer>
           ) : (
-            <p className="text-center py-12" style={{ color: '#A8A29E' }}>No income data</p>
+            <p className="text-center py-12" style={{ color: 'var(--app-text-muted)' }}>No income data</p>
           )}
         </div>
 
-        <div className="bg-white border border-[#E5E2DC] rounded-lg p-6 shadow-sm">
-          <h3 className="font-heading text-xl mb-4" style={{ color: '#1C1917' }}>Expense Breakdown</h3>
+        <div className="themed-card rounded-lg p-6 shadow-sm">
+          <h3 className="font-heading text-xl mb-4" style={{ color: 'var(--app-text)' }}>Expense Breakdown</h3>
           {expenseData.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
@@ -246,14 +246,14 @@ const Analytics = () => {
               </PieChart>
             </ResponsiveContainer>
           ) : (
-            <p className="text-center py-12" style={{ color: '#A8A29E' }}>No expense data</p>
+            <p className="text-center py-12" style={{ color: 'var(--app-text-muted)' }}>No expense data</p>
           )}
         </div>
       </div>
 
       {/* Monthly Trend */}
-      <div className="bg-white border border-[#E5E2DC] rounded-lg p-6 shadow-sm">
-        <h3 className="font-heading text-xl mb-4" style={{ color: '#1C1917' }}>Monthly Trend</h3>
+      <div className="themed-card rounded-lg p-6 shadow-sm">
+        <h3 className="font-heading text-xl mb-4" style={{ color: 'var(--app-text)' }}>Monthly Trend</h3>
         {analytics?.monthly_trend?.length > 0 ? (
           <ResponsiveContainer width="100%" height={400}>
             <LineChart data={analytics.monthly_trend}>
@@ -267,13 +267,13 @@ const Analytics = () => {
             </LineChart>
           </ResponsiveContainer>
         ) : (
-          <p className="text-center py-12" style={{ color: '#A8A29E' }}>No monthly data</p>
+          <p className="text-center py-12" style={{ color: 'var(--app-text-muted)' }}>No monthly data</p>
         )}
       </div>
 
       {/* Top Expenses */}
-      <div className="bg-white border border-[#E5E2DC] rounded-lg p-6 shadow-sm">
-        <h3 className="font-heading text-xl mb-4" style={{ color: '#1C1917' }}>Top 5 Expense Categories</h3>
+      <div className="themed-card rounded-lg p-6 shadow-sm">
+        <h3 className="font-heading text-xl mb-4" style={{ color: 'var(--app-text)' }}>Top 5 Expense Categories</h3>
         {topExpenses.length > 0 ? (
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={topExpenses} layout="vertical">
@@ -285,29 +285,29 @@ const Analytics = () => {
             </BarChart>
           </ResponsiveContainer>
         ) : (
-          <p className="text-center py-12" style={{ color: '#A8A29E' }}>No expense data</p>
+          <p className="text-center py-12" style={{ color: 'var(--app-text-muted)' }}>No expense data</p>
         )}
       </div>
 
       {/* Account Balances */}
-      <div className="bg-white border border-[#E5E2DC] rounded-lg p-6 shadow-sm">
-        <h3 className="font-heading text-xl mb-4" style={{ color: '#1C1917' }}>Account Balances</h3>
+      <div className="themed-card rounded-lg p-6 shadow-sm">
+        <h3 className="font-heading text-xl mb-4" style={{ color: 'var(--app-text)' }}>Account Balances</h3>
         {analytics?.account_balances?.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {analytics.account_balances.map((acc, idx) => (
-              <div key={idx} className="p-4 border border-[#E5E2DC] rounded-lg">
-                <div className="text-xs uppercase tracking-[0.2em] mb-1" style={{ color: '#78716C' }}>
+              <div key={idx} className="p-4 border border-[var(--app-card-border)] rounded-lg">
+                <div className="text-xs uppercase tracking-[0.2em] mb-1" style={{ color: 'var(--app-text-secondary)' }}>
                   {acc.type.replace('_', ' ')}
                 </div>
-                <div className="font-medium mb-1" style={{ color: '#1C1917' }}>{acc.name}</div>
-                <div className="text-lg font-heading" style={{ color: '#5C745A' }}>
+                <div className="font-medium mb-1" style={{ color: 'var(--app-text)' }}>{acc.name}</div>
+                <div className="text-lg font-heading" style={{ color: 'var(--app-accent)' }}>
                   ₹{acc.balance.toFixed(2)}
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-center py-6" style={{ color: '#A8A29E' }}>No account data</p>
+          <p className="text-center py-6" style={{ color: 'var(--app-text-muted)' }}>No account data</p>
         )}
       </div>
     </div>

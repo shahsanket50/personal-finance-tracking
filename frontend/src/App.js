@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ThemeProvider, useTheme, THEMES } from './contexts/ThemeContext';
 import Login from './pages/Login';
 import AuthCallback from './pages/AuthCallback';
 import Dashboard from './pages/Dashboard';
@@ -10,7 +11,7 @@ import Upload from './pages/Upload';
 import Analytics from './pages/Analytics';
 import Categories from './pages/Categories';
 import Settings from './pages/Settings';
-import { House, CreditCard, ArrowsLeftRight, UploadSimple, ChartLine, Tag, SignOut, List, Gear } from '@phosphor-icons/react';
+import { House, CreditCard, ArrowsLeftRight, UploadSimple, ChartLine, Tag, SignOut, List, Gear, Palette } from '@phosphor-icons/react';
 import './App.css';
 
 const NAV_ITEMS = [
@@ -29,8 +30,8 @@ function ProtectedRoute({ children }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: '#1a1a1a' }}>
-        <div className="w-10 h-10 border-4 border-[#5C745A] border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--app-bg)' }}>
+        <div className="w-10 h-10 border-4 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--app-accent)', borderTopColor: 'transparent' }} />
       </div>
     );
   }
@@ -42,16 +43,59 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
+function ThemePicker() {
+  const { theme, setTheme, themes } = useTheme();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="p-2 rounded-lg transition-colors"
+        style={{ color: 'var(--app-nav-text)' }}
+        data-testid="theme-toggle-btn"
+        title="Change theme"
+      >
+        <Palette size={20} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute bottom-full left-0 mb-2 p-2 rounded-xl shadow-xl border z-50 min-w-[160px]"
+            style={{ background: 'var(--app-card-bg)', borderColor: 'var(--app-card-border)' }}>
+            {Object.entries(themes).map(([key, t]) => (
+              <button
+                key={key}
+                onClick={() => { setTheme(key); setOpen(false); }}
+                data-testid={`theme-${key}`}
+                className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm transition-colors"
+                style={{
+                  background: theme === key ? 'var(--app-nav-active-bg)' : 'transparent',
+                  color: theme === key ? 'var(--app-accent)' : 'var(--app-text-secondary)',
+                }}
+              >
+                <div className="w-5 h-5 rounded-full border-2 shrink-0"
+                  style={{ background: t.preview, borderColor: theme === key ? 'var(--app-accent)' : 'var(--app-card-border)' }} />
+                {t.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function AppLayout() {
   const { user, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
-    <div className="flex h-screen" style={{ background: '#111111' }}>
+    <div className="flex h-screen" style={{ background: 'var(--app-bg)' }}>
       {/* Sidebar - Desktop */}
-      <aside className="hidden lg:flex flex-col w-64 border-r" style={{ background: '#161616', borderColor: '#222' }}>
-        <div className="p-5 border-b" style={{ borderColor: '#222' }}>
-          <h1 className="text-lg font-bold text-white tracking-tight">MoneyInsights</h1>
+      <aside className="hidden lg:flex flex-col w-64 border-r" style={{ background: 'var(--app-sidebar)', borderColor: 'var(--app-sidebar-border)' }}>
+        <div className="p-5 border-b" style={{ borderColor: 'var(--app-sidebar-border)' }}>
+          <h1 className="text-lg font-bold tracking-tight" style={{ color: 'var(--app-text)' }}>MoneyInsights</h1>
         </div>
         <nav className="flex-1 py-3 px-3 space-y-1">
           {NAV_ITEMS.map(item => (
@@ -60,10 +104,12 @@ function AppLayout() {
               to={item.path}
               end={item.path === '/'}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive ? 'bg-[#5C745A]/20 text-[#8eb88a]' : 'text-white/50 hover:text-white/80 hover:bg-white/5'
-                }`
+                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors`
               }
+              style={({ isActive }) => ({
+                background: isActive ? 'var(--app-nav-active-bg)' : 'transparent',
+                color: isActive ? 'var(--app-nav-active-text)' : 'var(--app-nav-text)',
+              })}
               data-testid={`nav-${item.label.toLowerCase()}`}
             >
               <item.icon size={20} />
@@ -72,21 +118,26 @@ function AppLayout() {
           ))}
         </nav>
         {user && (
-          <div className="p-3 border-t" style={{ borderColor: '#222' }}>
-            <div className="flex items-center gap-3 px-3 py-2">
+          <div className="p-3 border-t" style={{ borderColor: 'var(--app-sidebar-border)' }}>
+            <div className="flex items-center gap-2 px-2">
+              <ThemePicker />
+            </div>
+            <div className="flex items-center gap-3 px-3 py-2 mt-1">
               {user.picture ? (
                 <img src={user.picture} alt="" className="w-8 h-8 rounded-full" />
               ) : (
-                <div className="w-8 h-8 rounded-full bg-[#5C745A]/30 flex items-center justify-center text-white text-xs font-bold">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
+                  style={{ background: 'var(--app-accent-light)', color: 'var(--app-accent-text)' }}>
                   {user.name?.[0] || user.email?.[0] || '?'}
                 </div>
               )}
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-white truncate">{user.name || user.email}</p>
+                <p className="text-sm truncate" style={{ color: 'var(--app-text)' }}>{user.name || user.email}</p>
               </div>
               <button
                 onClick={logout}
-                className="p-1.5 rounded-lg text-white/40 hover:text-white/80 hover:bg-white/5 transition-colors"
+                className="p-1.5 rounded-lg transition-colors"
+                style={{ color: 'var(--app-text-muted)' }}
                 data-testid="logout-btn"
                 title="Sign out"
               >
@@ -98,18 +149,24 @@ function AppLayout() {
       </aside>
 
       {/* Mobile Header */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 h-14 border-b" style={{ background: '#161616', borderColor: '#222' }}>
-        <h1 className="text-lg font-bold text-white">MoneyInsights</h1>
-        <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="text-white/60 p-2" data-testid="mobile-menu-btn">
-          <List size={24} />
-        </button>
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 h-14 border-b"
+        style={{ background: 'var(--app-mobile-header)', borderColor: 'var(--app-sidebar-border)' }}>
+        <h1 className="text-lg font-bold" style={{ color: 'var(--app-text)' }}>MoneyInsights</h1>
+        <div className="flex items-center gap-2">
+          <ThemePicker />
+          <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2" style={{ color: 'var(--app-text-secondary)' }} data-testid="mobile-menu-btn">
+            <List size={24} />
+          </button>
+        </div>
       </div>
 
       {/* Mobile Menu Overlay */}
       {mobileMenuOpen && (
         <div className="lg:hidden fixed inset-0 z-40" onClick={() => setMobileMenuOpen(false)}>
-          <div className="absolute inset-0 bg-black/50" />
-          <div className="absolute top-14 right-0 w-64 h-full border-l" style={{ background: '#161616', borderColor: '#222' }} onClick={e => e.stopPropagation()}>
+          <div className="absolute inset-0" style={{ background: 'var(--app-overlay)' }} />
+          <div className="absolute top-14 right-0 w-64 h-full border-l"
+            style={{ background: 'var(--app-sidebar)', borderColor: 'var(--app-sidebar-border)' }}
+            onClick={e => e.stopPropagation()}>
             <nav className="py-3 px-3 space-y-1">
               {NAV_ITEMS.map(item => (
                 <NavLink
@@ -117,11 +174,11 @@ function AppLayout() {
                   to={item.path}
                   end={item.path === '/'}
                   onClick={() => setMobileMenuOpen(false)}
-                  className={({ isActive }) =>
-                    `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                      isActive ? 'bg-[#5C745A]/20 text-[#8eb88a]' : 'text-white/50 hover:text-white/80 hover:bg-white/5'
-                    }`
-                  }
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
+                  style={({ isActive }) => ({
+                    background: isActive ? 'var(--app-nav-active-bg)' : 'transparent',
+                    color: isActive ? 'var(--app-nav-active-text)' : 'var(--app-nav-text)',
+                  })}
                 >
                   <item.icon size={20} />
                   {item.label}
@@ -129,8 +186,8 @@ function AppLayout() {
               ))}
             </nav>
             {user && (
-              <div className="px-3 pt-3 border-t" style={{ borderColor: '#222' }}>
-                <button onClick={logout} className="flex items-center gap-2 px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 rounded-lg w-full">
+              <div className="px-3 pt-3 border-t" style={{ borderColor: 'var(--app-sidebar-border)' }}>
+                <button onClick={logout} className="flex items-center gap-2 px-3 py-2.5 text-sm rounded-lg w-full" style={{ color: 'var(--app-danger)' }}>
                   <SignOut size={18} /> Sign out
                 </button>
               </div>
@@ -159,8 +216,6 @@ function AppLayout() {
 
 function AppRouter() {
   const location = useLocation();
-  // CRITICAL: Check URL fragment for session_id synchronously during render
-  // This must happen BEFORE ProtectedRoute runs to prevent race conditions
   if (location.hash?.includes('session_id=')) {
     return <AuthCallback />;
   }
@@ -179,9 +234,11 @@ function AppRouter() {
 function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <AppRouter />
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <AppRouter />
+        </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   );
 }

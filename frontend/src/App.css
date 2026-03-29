@@ -20,21 +20,56 @@ body {
   font-family: 'IBM Plex Mono', monospace;
 }
 
-/* Custom scrollbar */
+/* Theme-aware utility classes */
+.themed-card {
+  background: var(--app-card-bg);
+  border: 1px solid var(--app-card-border);
+}
+
+.themed-card-hover:hover {
+  background: var(--app-card-hover);
+}
+
+.themed-input {
+  background: var(--app-input-bg) !important;
+  border-color: var(--app-input-border) !important;
+  color: var(--app-text) !important;
+}
+
+.themed-badge {
+  background: var(--app-badge-bg);
+}
+
+.themed-btn-primary {
+  background: var(--app-accent) !important;
+  color: white !important;
+}
+
+.themed-btn-primary:hover {
+  background: var(--app-accent-hover) !important;
+}
+
+.themed-btn-secondary {
+  background: var(--app-card-bg) !important;
+  color: var(--app-text) !important;
+  border: 1px solid var(--app-card-border) !important;
+}
+
+/* Custom scrollbar themed */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #F9F8F6;
+  background: var(--app-bg);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #D6D3CD;
+  background: var(--app-card-border);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #A8A29E;
+  background: var(--app-text-muted);
 }

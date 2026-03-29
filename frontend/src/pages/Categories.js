@@ -18,7 +18,7 @@ const Categories = () => {
   const [formData, setFormData] = useState({
     name: '',
     category_type: 'expense',
-    color: '#5C745A'
+    color: 'var(--app-accent)'
   });
 
   useEffect(() => {
@@ -47,7 +47,7 @@ const Categories = () => {
       }
       setOpen(false);
       setEditingCategory(null);
-      setFormData({ name: '', category_type: 'expense', color: '#5C745A' });
+      setFormData({ name: '', category_type: 'expense', color: 'var(--app-accent)' });
       loadCategories();
     } catch (err) {
       toast.error('Failed to save category');
@@ -97,19 +97,19 @@ const Categories = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-heading text-3xl tracking-tight" style={{ fontFamily: 'Manrope, sans-serif', color: '#1C1917' }}>
+          <h2 className="font-heading text-3xl tracking-tight" style={{ fontFamily: 'Manrope, sans-serif', color: 'var(--app-text)' }}>
             Categories
           </h2>
-          <p className="text-sm mt-1" style={{ color: '#78716C' }}>Customize your transaction categories</p>
+          <p className="text-sm mt-1" style={{ color: 'var(--app-text-secondary)' }}>Customize your transaction categories</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button 
               data-testid="add-category-btn"
-              className="bg-[#5C745A] text-white hover:bg-[#475F45] rounded-lg"
+              className="themed-btn-primary rounded-lg"
               onClick={() => {
                 setEditingCategory(null);
-                setFormData({ name: '', category_type: 'expense', color: '#5C745A' });
+                setFormData({ name: '', category_type: 'expense', color: 'var(--app-accent)' });
               }}
             >
               <Plus size={18} className="mr-2" />
@@ -152,7 +152,7 @@ const Categories = () => {
                       type="button"
                       onClick={() => setFormData({...formData, color: opt.value})}
                       className={`w-10 h-10 rounded-lg border-2 transition-all duration-200 ${
-                        formData.color === opt.value ? 'border-[#1C1917] scale-110' : 'border-[#E5E2DC]'
+                        formData.color === opt.value ? 'border-[#1C1917] scale-110' : 'border-[var(--app-card-border)]'
                       }`}
                       style={{ backgroundColor: opt.value }}
                       title={opt.label}
@@ -160,7 +160,7 @@ const Categories = () => {
                   ))}
                 </div>
               </div>
-              <Button type="submit" data-testid="save-category-btn" className="w-full bg-[#5C745A] text-white hover:bg-[#475F45] rounded-lg">
+              <Button type="submit" data-testid="save-category-btn" className="w-full themed-btn-primary rounded-lg">
                 {editingCategory ? 'Update' : 'Create'} Category
               </Button>
             </form>
@@ -170,20 +170,20 @@ const Categories = () => {
 
       {/* Income Categories */}
       <div>
-        <h3 className="font-heading text-xl mb-4" style={{ color: '#5C745A' }}>Income Categories</h3>
+        <h3 className="font-heading text-xl mb-4" style={{ color: 'var(--app-accent)' }}>Income Categories</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {incomeCategories.map(cat => (
             <div 
               key={cat.id}
               data-testid={`category-${cat.id}`}
-              className="bg-white border border-[#E5E2DC] rounded-lg p-4 flex items-center justify-between hover:-translate-y-1 hover:shadow-lg transition-all duration-200"
+              className="themed-card rounded-lg p-4 flex items-center justify-between hover:-translate-y-1 hover:shadow-lg transition-all duration-200"
             >
               <div className="flex items-center gap-3">
                 <div className="w-4 h-4 rounded" style={{ backgroundColor: cat.color }} />
                 <div>
-                  <div className="font-medium" style={{ color: '#1C1917' }}>{cat.name}</div>
+                  <div className="font-medium" style={{ color: 'var(--app-text)' }}>{cat.name}</div>
                   {cat.is_default && (
-                    <span className="text-xs" style={{ color: '#78716C' }}>Default</span>
+                    <span className="text-xs" style={{ color: 'var(--app-text-secondary)' }}>Default</span>
                   )}
                 </div>
               </div>
@@ -212,20 +212,20 @@ const Categories = () => {
 
       {/* Expense Categories */}
       <div>
-        <h3 className="font-heading text-xl mb-4" style={{ color: '#C06B52' }}>Expense Categories</h3>
+        <h3 className="font-heading text-xl mb-4" style={{ color: 'var(--app-danger)' }}>Expense Categories</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {expenseCategories.map(cat => (
             <div 
               key={cat.id}
               data-testid={`category-${cat.id}`}
-              className="bg-white border border-[#E5E2DC] rounded-lg p-4 flex items-center justify-between hover:-translate-y-1 hover:shadow-lg transition-all duration-200"
+              className="themed-card rounded-lg p-4 flex items-center justify-between hover:-translate-y-1 hover:shadow-lg transition-all duration-200"
             >
               <div className="flex items-center gap-3">
                 <div className="w-4 h-4 rounded" style={{ backgroundColor: cat.color }} />
                 <div>
-                  <div className="font-medium" style={{ color: '#1C1917' }}>{cat.name}</div>
+                  <div className="font-medium" style={{ color: 'var(--app-text)' }}>{cat.name}</div>
                   {cat.is_default && (
-                    <span className="text-xs" style={{ color: '#78716C' }}>Default</span>
+                    <span className="text-xs" style={{ color: 'var(--app-text-secondary)' }}>Default</span>
                   )}
                 </div>
               </div>

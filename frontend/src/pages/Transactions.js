@@ -180,17 +180,17 @@ const Transactions = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-heading text-3xl tracking-tight" style={{ fontFamily: 'Manrope, sans-serif', color: '#1C1917' }}>
+          <h2 className="font-heading text-3xl tracking-tight" style={{ fontFamily: 'Manrope, sans-serif', color: 'var(--app-text)' }}>
             Transactions
           </h2>
-          <p className="text-sm mt-1" style={{ color: '#78716C' }}>Track all your financial transactions</p>
+          <p className="text-sm mt-1" style={{ color: 'var(--app-text-secondary)' }}>Track all your financial transactions</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button
             data-testid="ai-categorize-btn"
             onClick={handleAICategorize}
             disabled={categorizing}
-            className="bg-[#5C745A] text-white hover:bg-[#4A5F49] rounded-lg"
+            className="themed-btn-primary rounded-lg"
           >
             <Sparkle size={18} className="mr-2" />
             {categorizing ? 'Categorizing...' : 'AI Categorize'}
@@ -198,7 +198,7 @@ const Transactions = () => {
           <Button
             data-testid="detect-transfers-btn"
             onClick={detectTransfers}
-            className="bg-[#F9F8F6] text-[#1C1917] hover:bg-[#E5E2DC] border border-[#E5E2DC] rounded-lg"
+            className="themed-badge text-[#1C1917] hover:bg-[#E5E2DC] border border-[var(--app-card-border)] rounded-lg"
           >
             <Repeat size={18} className="mr-2" />
             Detect Transfers
@@ -275,7 +275,7 @@ const Transactions = () => {
             <DialogTrigger asChild>
               <Button 
                 data-testid="add-transaction-btn"
-                className="bg-[#5C745A] text-white hover:bg-[#475F45] rounded-lg"
+                className="themed-btn-primary rounded-lg"
                 onClick={() => {
                   setEditingTransaction(null);
                   setFormData({
@@ -376,7 +376,7 @@ const Transactions = () => {
                     placeholder="Additional notes"
                   />
                 </div>
-                <Button type="submit" data-testid="save-transaction-btn" className="w-full bg-[#5C745A] text-white hover:bg-[#475F45] rounded-lg">
+                <Button type="submit" data-testid="save-transaction-btn" className="w-full themed-btn-primary rounded-lg">
                   {editingTransaction ? 'Update' : 'Add'} Transaction
                 </Button>
               </form>
@@ -395,29 +395,29 @@ const Transactions = () => {
         </TabsList>
         
         <TabsContent value="all">
-          <div className="bg-white border border-[#E5E2DC] rounded-lg overflow-hidden">
+          <div className="themed-card rounded-lg overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-[#F9F8F6] border-b border-[#E5E2DC]">
+                <thead className="themed-badge border-b border-[var(--app-card-border)]">
                   <tr>
-                    <th className="text-left p-4 text-xs uppercase tracking-[0.2em]" style={{ color: '#78716C' }}>Date</th>
-                    <th className="text-left p-4 text-xs uppercase tracking-[0.2em]" style={{ color: '#78716C' }}>Account</th>
-                    <th className="text-left p-4 text-xs uppercase tracking-[0.2em]" style={{ color: '#78716C' }}>Description</th>
-                    <th className="text-left p-4 text-xs uppercase tracking-[0.2em]" style={{ color: '#78716C' }}>Category</th>
-                    <th className="text-right p-4 text-xs uppercase tracking-[0.2em]" style={{ color: '#78716C' }}>Amount</th>
-                    <th className="text-right p-4 text-xs uppercase tracking-[0.2em]" style={{ color: '#78716C' }}>Actions</th>
+                    <th className="text-left p-4 text-xs uppercase tracking-[0.2em]" style={{ color: 'var(--app-text-secondary)' }}>Date</th>
+                    <th className="text-left p-4 text-xs uppercase tracking-[0.2em]" style={{ color: 'var(--app-text-secondary)' }}>Account</th>
+                    <th className="text-left p-4 text-xs uppercase tracking-[0.2em]" style={{ color: 'var(--app-text-secondary)' }}>Description</th>
+                    <th className="text-left p-4 text-xs uppercase tracking-[0.2em]" style={{ color: 'var(--app-text-secondary)' }}>Category</th>
+                    <th className="text-right p-4 text-xs uppercase tracking-[0.2em]" style={{ color: 'var(--app-text-secondary)' }}>Amount</th>
+                    <th className="text-right p-4 text-xs uppercase tracking-[0.2em]" style={{ color: 'var(--app-text-secondary)' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {transactions.map(txn => (
-                    <tr key={txn.id} className="border-b border-[#E5E2DC] hover:bg-[#F9F8F6] transition-colors duration-200">
-                      <td className="p-4 text-sm" style={{ color: '#1C1917' }}>{txn.date}</td>
-                      <td className="p-4 text-sm" style={{ color: '#1C1917' }}>{getAccountName(txn.account_id)}</td>
-                      <td className="p-4 text-sm" style={{ color: '#1C1917' }}>
+                    <tr key={txn.id} className="border-b border-[var(--app-card-border)] hover:themed-badge transition-colors duration-200">
+                      <td className="p-4 text-sm" style={{ color: 'var(--app-text)' }}>{txn.date}</td>
+                      <td className="p-4 text-sm" style={{ color: 'var(--app-text)' }}>{getAccountName(txn.account_id)}</td>
+                      <td className="p-4 text-sm" style={{ color: 'var(--app-text)' }}>
                         {txn.description}
                         {txn.is_transfer && <span className="ml-2 text-xs px-2 py-0.5 bg-[#78716C] text-white rounded">Transfer</span>}
                       </td>
-                      <td className="p-4 text-sm" style={{ color: '#78716C' }}>{getCategoryName(txn.category_id)}</td>
+                      <td className="p-4 text-sm" style={{ color: 'var(--app-text-secondary)' }}>{getCategoryName(txn.category_id)}</td>
                       <td className="p-4 text-sm text-right font-medium" style={{ color: txn.transaction_type === 'credit' ? '#5C745A' : '#C06B52' }}>
                         {txn.transaction_type === 'credit' ? '+' : '-'}₹{txn.amount.toFixed(2)}
                       </td>
@@ -445,7 +445,7 @@ const Transactions = () => {
               </table>
             </div>
             {transactions.length === 0 && (
-              <div className="p-12 text-center" style={{ color: '#A8A29E' }}>
+              <div className="p-12 text-center" style={{ color: 'var(--app-text-muted)' }}>
                 No transactions yet. Add your first transaction!
               </div>
             )}
@@ -455,13 +455,13 @@ const Transactions = () => {
         <TabsContent value="transfers">
           <div className="space-y-4">
             {potentialTransfers.map((transfer, idx) => (
-              <div key={idx} className="bg-white border border-[#E5E2DC] rounded-lg p-6">
+              <div key={idx} className="themed-card rounded-lg p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
                     <div className="grid grid-cols-2 gap-6">
                       <div>
-                        <div className="text-xs uppercase tracking-[0.2em] mb-1" style={{ color: '#78716C' }}>Transaction 1</div>
-                        <div className="text-sm" style={{ color: '#1C1917' }}>
+                        <div className="text-xs uppercase tracking-[0.2em] mb-1" style={{ color: 'var(--app-text-secondary)' }}>Transaction 1</div>
+                        <div className="text-sm" style={{ color: 'var(--app-text)' }}>
                           {getAccountName(transfer.txn1.account_id)} - {transfer.txn1.description}
                         </div>
                         <div className="text-sm" style={{ color: transfer.txn1.transaction_type === 'credit' ? '#5C745A' : '#C06B52' }}>
@@ -469,8 +469,8 @@ const Transactions = () => {
                         </div>
                       </div>
                       <div>
-                        <div className="text-xs uppercase tracking-[0.2em] mb-1" style={{ color: '#78716C' }}>Transaction 2</div>
-                        <div className="text-sm" style={{ color: '#1C1917' }}>
+                        <div className="text-xs uppercase tracking-[0.2em] mb-1" style={{ color: 'var(--app-text-secondary)' }}>Transaction 2</div>
+                        <div className="text-sm" style={{ color: 'var(--app-text)' }}>
                           {getAccountName(transfer.txn2.account_id)} - {transfer.txn2.description}
                         </div>
                         <div className="text-sm" style={{ color: transfer.txn2.transaction_type === 'credit' ? '#5C745A' : '#C06B52' }}>
@@ -478,12 +478,12 @@ const Transactions = () => {
                         </div>
                       </div>
                     </div>
-                    <div className="text-xs mt-2" style={{ color: '#78716C' }}>Date: {transfer.date}</div>
+                    <div className="text-xs mt-2" style={{ color: 'var(--app-text-secondary)' }}>Date: {transfer.date}</div>
                   </div>
                   <Button
                     onClick={() => markAsTransfer(transfer.txn1.id, transfer.txn2.id)}
                     data-testid={`mark-transfer-${idx}`}
-                    className="bg-[#5C745A] text-white hover:bg-[#475F45] rounded-lg"
+                    className="themed-btn-primary rounded-lg"
                   >
                     Mark as Transfer
                   </Button>
@@ -491,7 +491,7 @@ const Transactions = () => {
               </div>
             ))}
             {potentialTransfers.length === 0 && (
-              <div className="bg-white border border-[#E5E2DC] rounded-lg p-12 text-center" style={{ color: '#A8A29E' }}>
+              <div className="themed-card rounded-lg p-12 text-center" style={{ color: 'var(--app-text-muted)' }}>
                 No potential transfers detected. Click "Detect Transfers" to scan for matching transactions.
               </div>
             )}
