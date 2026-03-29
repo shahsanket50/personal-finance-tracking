@@ -110,10 +110,9 @@ DEFAULT_CATEGORIES = [
 # Initialize default categories
 @api_router.post("/init")
 async def initialize_defaults():
-    # Check if categories exist
-    existing = await db.categories.count_documents({})
-    if existing == 0:
-        for cat_data in DEFAULT_CATEGORIES:
+    for cat_data in DEFAULT_CATEGORIES:
+        existing = await db.categories.find_one({"name": cat_data["name"], "is_default": True})
+        if not existing:
             cat = Category(**cat_data)
             doc = cat.model_dump()
             doc['created_at'] = doc['created_at'].isoformat()
