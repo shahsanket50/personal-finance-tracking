@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
-import { Plus, Trash, Pencil, Repeat } from '@phosphor-icons/react';
+import { Plus, Trash, Pencil, Repeat, Sparkle } from '@phosphor-icons/react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -18,6 +18,7 @@ const Transactions = () => {
   const [categories, setCategories] = useState([]);
   const [open, setOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
+  const [categorizing, setCategorizing] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState(null);
   const [formData, setFormData] = useState({
     account_id: '',
@@ -161,6 +162,20 @@ const Transactions = () => {
   const getAccountName = (id) => accounts.find(a => a.id === id)?.name || 'Unknown';
   const getCategoryName = (id) => categories.find(c => c.id === id)?.name || 'Uncategorized';
 
+  const handleAICategorize = async () => {
+    setCategorizing(true);
+    try {
+      const res = await axios.post(`${API}/ai-categorize`, []);
+      toast.success(res.data.message);
+      loadData();
+    } catch (err) {
+      toast.error('AI categorization failed');
+      console.error(err);
+    } finally {
+      setCategorizing(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -170,7 +185,16 @@ const Transactions = () => {
           </h2>
           <p className="text-sm mt-1" style={{ color: '#78716C' }}>Track all your financial transactions</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            data-testid="ai-categorize-btn"
+            onClick={handleAICategorize}
+            disabled={categorizing}
+            className="bg-[#5C745A] text-white hover:bg-[#4A5F49] rounded-lg"
+          >
+            <Sparkle size={18} className="mr-2" />
+            {categorizing ? 'Categorizing...' : 'AI Categorize'}
+          </Button>
           <Button
             data-testid="detect-transfers-btn"
             onClick={detectTransfers}

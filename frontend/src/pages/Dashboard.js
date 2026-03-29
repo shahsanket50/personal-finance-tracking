@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Wallet, TrendUp, TrendDown, ArrowsLeftRight } from '@phosphor-icons/react';
+import { Wallet, TrendUp, TrendDown, ArrowsLeftRight, DownloadSimple } from '@phosphor-icons/react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { toast } from 'sonner';
+import { Button } from '../components/ui/button';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -32,6 +33,22 @@ const Dashboard = () => {
     }
   };
 
+  const handleExportBackup = async () => {
+    try {
+      const res = await axios.get(`${API}/backup/export`);
+      const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `moneyinsights-backup-${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Backup downloaded successfully');
+    } catch (err) {
+      toast.error('Failed to export backup');
+    }
+  };
+
   if (loading) {
     return <div className="text-center py-12" style={{ color: '#78716C' }}>Loading...</div>;
   }
@@ -42,11 +59,21 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="font-heading text-3xl tracking-tight" style={{ fontFamily: 'Manrope, sans-serif', color: '#1C1917' }}>
-          Dashboard
-        </h2>
-        <p className="text-sm mt-1" style={{ color: '#78716C' }}>Overview of your financial health</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-heading text-3xl tracking-tight" style={{ fontFamily: 'Manrope, sans-serif', color: '#1C1917' }}>
+            Dashboard
+          </h2>
+          <p className="text-sm mt-1" style={{ color: '#78716C' }}>Overview of your financial health</p>
+        </div>
+        <Button
+          onClick={handleExportBackup}
+          data-testid="export-backup-btn"
+          className="bg-[#F9F8F6] text-[#1C1917] hover:bg-[#E5E2DC] border border-[#E5E2DC] rounded-lg"
+        >
+          <DownloadSimple size={18} className="mr-2" />
+          Export Backup
+        </Button>
       </div>
 
       {/* Summary Cards */}

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Query, Request, Depends
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -9,15 +9,23 @@ from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import pdfplumber
 import io
 import re
+import httpx
 from collections import defaultdict
 from pdf_parsers_simple import get_simple_parser
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -30,16 +38,167 @@ app = FastAPI()
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
+# ─── Auth Models ──────────────────────────────────────────────────────
+class User(BaseModel):
+    user_id: str
+    email: str
+    name: str
+    picture: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class UserSession(BaseModel):
+    user_id: str
+    session_token: str
+    expires_at: datetime
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# ─── Auth Helper ──────────────────────────────────────────────────────
+async def get_current_user(request: Request) -> Dict:
+    """Extract and validate session from cookie or Authorization header"""
+    session_token = request.cookies.get("session_token")
+    if not session_token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            session_token = auth_header[7:]
+
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    session_doc = await db.user_sessions.find_one(
+        {"session_token": session_token}, {"_id": 0}
+    )
+    if not session_doc:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    expires_at = session_doc["expires_at"]
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=401, detail="Session expired")
+
+    user_doc = await db.users.find_one(
+        {"user_id": session_doc["user_id"]}, {"_id": 0}
+    )
+    if not user_doc:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    return user_doc
+
+
+# ─── Auth Endpoints ───────────────────────────────────────────────────
+EMERGENT_AUTH_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
+
+@api_router.post("/auth/session")
+async def exchange_session(request: Request):
+    """Exchange session_id from Emergent Auth for a session_token"""
+    body = await request.json()
+    session_id = body.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+
+    async with httpx.AsyncClient() as hc:
+        resp = await hc.get(
+            EMERGENT_AUTH_URL,
+            headers={"X-Session-ID": session_id}
+        )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=401, detail="Invalid session_id")
+        auth_data = resp.json()
+
+    email = auth_data["email"]
+    name = auth_data.get("name", "")
+    picture = auth_data.get("picture", "")
+    session_token = auth_data["session_token"]
+
+    # Upsert user
+    existing_user = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing_user:
+        user_id = existing_user["user_id"]
+        await db.users.update_one(
+            {"email": email},
+            {"$set": {"name": name, "picture": picture}}
+        )
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        user_doc = {
+            "user_id": user_id,
+            "email": email,
+            "name": name,
+            "picture": picture,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.users.insert_one(user_doc)
+        # Initialize default categories for new user
+        await _init_default_categories(user_id)
+
+    # Store session
+    session_doc = {
+        "user_id": user_id,
+        "session_token": session_token,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.user_sessions.insert_one(session_doc)
+
+    response = JSONResponse(content={
+        "user_id": user_id,
+        "email": email,
+        "name": name,
+        "picture": picture
+    })
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/",
+        max_age=7 * 24 * 3600
+    )
+    return response
+
+@api_router.get("/auth/me")
+async def get_me(user: Dict = Depends(get_current_user)):
+    """Get current authenticated user"""
+    return {
+        "user_id": user["user_id"],
+        "email": user["email"],
+        "name": user["name"],
+        "picture": user.get("picture", "")
+    }
+
+@api_router.post("/auth/logout")
+async def logout(request: Request):
+    session_token = request.cookies.get("session_token")
+    if session_token:
+        await db.user_sessions.delete_one({"session_token": session_token})
+    response = JSONResponse(content={"message": "Logged out"})
+    response.delete_cookie(key="session_token", path="/", samesite="none", secure=True)
+    return response
+
+# OAuth callback - redirect from Google Auth back to frontend
+@app.get("/auth/callback")
+async def auth_callback(request: Request):
+    session_id = request.query_params.get("session_id", "")
+    from starlette.responses import RedirectResponse
+    frontend_url = "https://money-insights-82.preview.emergentagent.com"
+    return RedirectResponse(url=f"{frontend_url}/auth/callback?session_id={session_id}")
+
 # Models
 class Account(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str = ""
     name: str
     account_type: str  # credit_card, bank, investment, cash
     start_balance: float = 0.0
     current_balance: float = 0.0
-    pdf_password: Optional[str] = None  # Saved PDF password
-    custom_parser: Optional[Dict] = None  # Custom parsing pattern
+    pdf_password: Optional[str] = None
+    custom_parser: Optional[Dict] = None
+    email_filter: Optional[str] = None  # Filter text for email auto-detection
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class AccountCreate(BaseModel):
@@ -48,10 +207,12 @@ class AccountCreate(BaseModel):
     start_balance: float = 0.0
     pdf_password: Optional[str] = None
     custom_parser: Optional[Dict] = None
+    email_filter: Optional[str] = None
 
 class Category(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str = ""
     name: str
     category_type: str  # income, expense
     color: str = "#5C745A"
@@ -66,6 +227,7 @@ class CategoryCreate(BaseModel):
 class Transaction(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str = ""
     account_id: str
     date: str
     description: str
@@ -107,40 +269,44 @@ DEFAULT_CATEGORIES = [
     {"name": "Other", "category_type": "expense", "color": "#A8A29E", "is_default": True},
 ]
 
-# Initialize default categories
-@api_router.post("/init")
-async def initialize_defaults():
+# Helper to init default categories for a user
+async def _init_default_categories(user_id: str):
     for cat_data in DEFAULT_CATEGORIES:
-        existing = await db.categories.find_one({"name": cat_data["name"], "is_default": True})
+        existing = await db.categories.find_one({"name": cat_data["name"], "is_default": True, "user_id": user_id})
         if not existing:
-            cat = Category(**cat_data)
+            cat = Category(**cat_data, user_id=user_id)
             doc = cat.model_dump()
             doc['created_at'] = doc['created_at'].isoformat()
             await db.categories.insert_one(doc)
+
+# Initialize default categories (called automatically on first login)
+@api_router.post("/init")
+async def initialize_defaults(user: Dict = Depends(get_current_user)):
+    await _init_default_categories(user["user_id"])
     return {"message": "Defaults initialized"}
 
 # Account endpoints
 @api_router.post("/accounts", response_model=Account)
-async def create_account(account: AccountCreate):
-    acc = Account(**account.model_dump(), current_balance=account.start_balance)
+async def create_account(account: AccountCreate, user: Dict = Depends(get_current_user)):
+    acc = Account(**account.model_dump(), user_id=user["user_id"], current_balance=account.start_balance)
     doc = acc.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
     await db.accounts.insert_one(doc)
     return acc
 
 @api_router.get("/accounts", response_model=List[Account])
-async def get_accounts():
-    accounts = await db.accounts.find({}, {"_id": 0}).to_list(1000)
+async def get_accounts(user: Dict = Depends(get_current_user)):
+    accounts = await db.accounts.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(1000)
     for acc in accounts:
-        if isinstance(acc['created_at'], str):
+        if isinstance(acc.get('created_at'), str):
             acc['created_at'] = datetime.fromisoformat(acc['created_at'])
     return accounts
 
 @api_router.put("/accounts/{account_id}", response_model=Account)
-async def update_account(account_id: str, account: AccountCreate):
+async def update_account(account_id: str, account: AccountCreate, user: Dict = Depends(get_current_user)):
     update_data = account.model_dump()
     result = await db.accounts.find_one_and_update(
-        {"id": account_id},
+        {"id": account_id, "user_id": user["user_id"]},
         {"$set": update_data},
         return_document=True
     )
@@ -148,41 +314,40 @@ async def update_account(account_id: str, account: AccountCreate):
         raise HTTPException(status_code=404, detail="Account not found")
     if '_id' in result:
         del result['_id']
-    if isinstance(result['created_at'], str):
+    if isinstance(result.get('created_at'), str):
         result['created_at'] = datetime.fromisoformat(result['created_at'])
     return Account(**result)
 
 @api_router.delete("/accounts/{account_id}")
-async def delete_account(account_id: str):
-    result = await db.accounts.delete_one({"id": account_id})
+async def delete_account(account_id: str, user: Dict = Depends(get_current_user)):
+    result = await db.accounts.delete_one({"id": account_id, "user_id": user["user_id"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Account not found")
-    # Also delete associated transactions
-    await db.transactions.delete_many({"account_id": account_id})
+    await db.transactions.delete_many({"account_id": account_id, "user_id": user["user_id"]})
     return {"message": "Account deleted"}
 
 # Category endpoints
 @api_router.post("/categories", response_model=Category)
-async def create_category(category: CategoryCreate):
-    cat = Category(**category.model_dump())
+async def create_category(category: CategoryCreate, user: Dict = Depends(get_current_user)):
+    cat = Category(**category.model_dump(), user_id=user["user_id"])
     doc = cat.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
     await db.categories.insert_one(doc)
     return cat
 
 @api_router.get("/categories", response_model=List[Category])
-async def get_categories():
-    categories = await db.categories.find({}, {"_id": 0}).to_list(1000)
+async def get_categories(user: Dict = Depends(get_current_user)):
+    categories = await db.categories.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(1000)
     for cat in categories:
-        if isinstance(cat['created_at'], str):
+        if isinstance(cat.get('created_at'), str):
             cat['created_at'] = datetime.fromisoformat(cat['created_at'])
     return categories
 
 @api_router.put("/categories/{category_id}", response_model=Category)
-async def update_category(category_id: str, category: CategoryCreate):
+async def update_category(category_id: str, category: CategoryCreate, user: Dict = Depends(get_current_user)):
     update_data = category.model_dump()
     result = await db.categories.find_one_and_update(
-        {"id": category_id},
+        {"id": category_id, "user_id": user["user_id"]},
         {"$set": update_data},
         return_document=True
     )
@@ -190,66 +355,63 @@ async def update_category(category_id: str, category: CategoryCreate):
         raise HTTPException(status_code=404, detail="Category not found")
     if '_id' in result:
         del result['_id']
-    if isinstance(result['created_at'], str):
+    if isinstance(result.get('created_at'), str):
         result['created_at'] = datetime.fromisoformat(result['created_at'])
     return Category(**result)
 
 @api_router.delete("/categories/{category_id}")
-async def delete_category(category_id: str):
-    # Check if it's a default category
-    cat = await db.categories.find_one({"id": category_id})
+async def delete_category(category_id: str, user: Dict = Depends(get_current_user)):
+    cat = await db.categories.find_one({"id": category_id, "user_id": user["user_id"]})
     if cat and cat.get('is_default'):
         raise HTTPException(status_code=400, detail="Cannot delete default category")
-    result = await db.categories.delete_one({"id": category_id})
+    result = await db.categories.delete_one({"id": category_id, "user_id": user["user_id"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Category not found")
     return {"message": "Category deleted"}
 
 # Transaction endpoints
 @api_router.post("/transactions", response_model=Transaction)
-async def create_transaction(transaction: TransactionCreate):
-    txn = Transaction(**transaction.model_dump())
+async def create_transaction(transaction: TransactionCreate, user: Dict = Depends(get_current_user)):
+    txn = Transaction(**transaction.model_dump(), user_id=user["user_id"])
     doc = txn.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
     await db.transactions.insert_one(doc)
-    
-    # Update account balance
-    account = await db.accounts.find_one({"id": transaction.account_id})
+
+    account = await db.accounts.find_one({"id": transaction.account_id, "user_id": user["user_id"]})
     if account:
         balance_change = transaction.amount if transaction.transaction_type == "credit" else -transaction.amount
         await db.accounts.update_one(
             {"id": transaction.account_id},
             {"$set": {"current_balance": account['current_balance'] + balance_change}}
         )
-    
+
     return txn
 
 @api_router.get("/transactions", response_model=List[Transaction])
 async def get_transactions(
     account_id: Optional[str] = None,
     start_date: Optional[str] = None,
-    end_date: Optional[str] = None
+    end_date: Optional[str] = None,
+    user: Dict = Depends(get_current_user)
 ):
-    query = {}
+    query = {"user_id": user["user_id"]}
     if account_id:
         query["account_id"] = account_id
     if start_date and end_date:
         query["date"] = {"$gte": start_date, "$lte": end_date}
-    
+
     transactions = await db.transactions.find(query, {"_id": 0}).sort("date", -1).to_list(10000)
     for txn in transactions:
-        if isinstance(txn['created_at'], str):
+        if isinstance(txn.get('created_at'), str):
             txn['created_at'] = datetime.fromisoformat(txn['created_at'])
     return transactions
 
 @api_router.put("/transactions/{transaction_id}", response_model=Transaction)
-async def update_transaction(transaction_id: str, transaction: TransactionCreate):
-    # Get old transaction to revert balance
-    old_txn = await db.transactions.find_one({"id": transaction_id})
+async def update_transaction(transaction_id: str, transaction: TransactionCreate, user: Dict = Depends(get_current_user)):
+    old_txn = await db.transactions.find_one({"id": transaction_id, "user_id": user["user_id"]})
     if not old_txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
-    
-    # Revert old balance change
+
     old_balance_change = old_txn['amount'] if old_txn['transaction_type'] == "credit" else -old_txn['amount']
     account = await db.accounts.find_one({"id": old_txn['account_id']})
     if account:
@@ -257,16 +419,14 @@ async def update_transaction(transaction_id: str, transaction: TransactionCreate
             {"id": old_txn['account_id']},
             {"$set": {"current_balance": account['current_balance'] - old_balance_change}}
         )
-    
-    # Update transaction
+
     update_data = transaction.model_dump()
     result = await db.transactions.find_one_and_update(
-        {"id": transaction_id},
+        {"id": transaction_id, "user_id": user["user_id"]},
         {"$set": update_data},
         return_document=True
     )
-    
-    # Apply new balance change
+
     new_balance_change = transaction.amount if transaction.transaction_type == "credit" else -transaction.amount
     account = await db.accounts.find_one({"id": transaction.account_id})
     if account:
@@ -274,20 +434,19 @@ async def update_transaction(transaction_id: str, transaction: TransactionCreate
             {"id": transaction.account_id},
             {"$set": {"current_balance": account['current_balance'] + new_balance_change}}
         )
-    
+
     if '_id' in result:
         del result['_id']
-    if isinstance(result['created_at'], str):
+    if isinstance(result.get('created_at'), str):
         result['created_at'] = datetime.fromisoformat(result['created_at'])
     return Transaction(**result)
 
 @api_router.delete("/transactions/{transaction_id}")
-async def delete_transaction(transaction_id: str):
-    txn = await db.transactions.find_one({"id": transaction_id})
+async def delete_transaction(transaction_id: str, user: Dict = Depends(get_current_user)):
+    txn = await db.transactions.find_one({"id": transaction_id, "user_id": user["user_id"]})
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
-    
-    # Revert balance change
+
     balance_change = txn['amount'] if txn['transaction_type'] == "credit" else -txn['amount']
     account = await db.accounts.find_one({"id": txn['account_id']})
     if account:
@@ -295,21 +454,21 @@ async def delete_transaction(transaction_id: str):
             {"id": txn['account_id']},
             {"$set": {"current_balance": account['current_balance'] - balance_change}}
         )
-    
+
     await db.transactions.delete_one({"id": transaction_id})
     return {"message": "Transaction deleted"}
 
 # Transfer endpoints
 @api_router.post("/transfers")
-async def create_transfer(transfer: TransferCreate):
+async def create_transfer(transfer: TransferCreate, user: Dict = Depends(get_current_user)):
     transfer_id = str(uuid.uuid4())
-    
-    # Get transfer category
-    transfer_cat = await db.categories.find_one({"name": "Transfer"})
+    uid = user["user_id"]
+
+    transfer_cat = await db.categories.find_one({"name": "Transfer", "user_id": uid})
     transfer_cat_id = transfer_cat['id'] if transfer_cat else None
-    
-    # Create debit transaction from source account
+
     debit_txn = Transaction(
+        user_id=uid,
         account_id=transfer.from_account_id,
         date=transfer.date,
         description=f"{transfer.description} (to account)",
@@ -319,9 +478,8 @@ async def create_transfer(transfer: TransferCreate):
         is_transfer=True,
         transfer_pair_id=transfer_id
     )
-    
-    # Create credit transaction to destination account
     credit_txn = Transaction(
+        user_id=uid,
         account_id=transfer.to_account_id,
         date=transfer.date,
         description=f"{transfer.description} (from account)",
@@ -331,38 +489,33 @@ async def create_transfer(transfer: TransferCreate):
         is_transfer=True,
         transfer_pair_id=transfer_id
     )
-    
-    # Insert both transactions
-    debit_doc = debit_txn.model_dump()
-    debit_doc['created_at'] = debit_doc['created_at'].isoformat()
-    await db.transactions.insert_one(debit_doc)
-    
-    credit_doc = credit_txn.model_dump()
-    credit_doc['created_at'] = credit_doc['created_at'].isoformat()
-    await db.transactions.insert_one(credit_doc)
-    
-    # Update balances
-    from_account = await db.accounts.find_one({"id": transfer.from_account_id})
+
+    for txn in [debit_txn, credit_txn]:
+        doc = txn.model_dump()
+        doc['created_at'] = doc['created_at'].isoformat()
+        await db.transactions.insert_one(doc)
+
+    from_account = await db.accounts.find_one({"id": transfer.from_account_id, "user_id": uid})
     if from_account:
         await db.accounts.update_one(
             {"id": transfer.from_account_id},
             {"$set": {"current_balance": from_account['current_balance'] - transfer.amount}}
         )
-    
-    to_account = await db.accounts.find_one({"id": transfer.to_account_id})
+    to_account = await db.accounts.find_one({"id": transfer.to_account_id, "user_id": uid})
     if to_account:
         await db.accounts.update_one(
             {"id": transfer.to_account_id},
             {"$set": {"current_balance": to_account['current_balance'] + transfer.amount}}
         )
-    
+
     return {"message": "Transfer created", "transfer_id": transfer_id}
 
 # Auto-detect transfers
 @api_router.post("/detect-transfers")
-async def detect_transfers():
-    # Get all non-transfer transactions
-    all_txns = await db.transactions.find({"is_transfer": False}, {"_id": 0}).to_list(10000)
+async def detect_transfers(user: Dict = Depends(get_current_user)):
+    all_txns = await db.transactions.find(
+        {"is_transfer": False, "user_id": user["user_id"]}, {"_id": 0}
+    ).to_list(10000)
     
     matched_pairs = []
     processed_ids = set()
@@ -396,39 +549,37 @@ async def detect_transfers():
 
 # Mark transactions as transfer
 @api_router.post("/mark-as-transfer")
-async def mark_as_transfer(txn_ids: List[str]):
+async def mark_as_transfer(txn_ids: List[str], user: Dict = Depends(get_current_user)):
     if len(txn_ids) != 2:
         raise HTTPException(status_code=400, detail="Need exactly 2 transaction IDs")
-    
+
     transfer_id = str(uuid.uuid4())
-    transfer_cat = await db.categories.find_one({"name": "Transfer"})
+    transfer_cat = await db.categories.find_one({"name": "Transfer", "user_id": user["user_id"]})
     transfer_cat_id = transfer_cat['id'] if transfer_cat else None
-    
+
     for txn_id in txn_ids:
         await db.transactions.update_one(
-            {"id": txn_id},
-            {"$set": {
-                "is_transfer": True,
-                "transfer_pair_id": transfer_id,
-                "category_id": transfer_cat_id
-            }}
+            {"id": txn_id, "user_id": user["user_id"]},
+            {"$set": {"is_transfer": True, "transfer_pair_id": transfer_id, "category_id": transfer_cat_id}}
         )
-    
+
     return {"message": "Transactions marked as transfer"}
 
 # Analytics endpoints
 @api_router.get("/analytics/summary")
 async def get_analytics_summary(
     start_date: Optional[str] = None,
-    end_date: Optional[str] = None
+    end_date: Optional[str] = None,
+    user: Dict = Depends(get_current_user)
 ):
-    query = {}
+    uid = user["user_id"]
+    query = {"user_id": uid}
     if start_date and end_date:
         query["date"] = {"$gte": start_date, "$lte": end_date}
     
     transactions = await db.transactions.find(query, {"_id": 0}).to_list(10000)
-    categories = await db.categories.find({}, {"_id": 0}).to_list(1000)
-    accounts = await db.accounts.find({}, {"_id": 0}).to_list(1000)
+    categories = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(1000)
+    accounts = await db.accounts.find({"user_id": uid}, {"_id": 0}).to_list(1000)
     
     # Calculate totals
     total_income = sum(t['amount'] for t in transactions if t['transaction_type'] == 'credit' and not t.get('is_transfer', False))
@@ -492,7 +643,8 @@ async def get_analytics_summary(
 async def upload_statement(
     file: UploadFile = File(...), 
     account_id: str = Query(...),
-    password: str = Query(default="", description="PDF password if protected")
+    password: str = Query(default="", description="PDF password if protected"),
+    user: Dict = Depends(get_current_user)
 ):
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
@@ -501,56 +653,39 @@ async def upload_statement(
         contents = await file.read()
         logger.info(f"Processing PDF: {file.filename}, Size: {len(contents)} bytes")
         
-        # Get account details
-        account = await db.accounts.find_one({"id": account_id})
+        account = await db.accounts.find_one({"id": account_id, "user_id": user["user_id"]})
         if not account:
             raise HTTPException(status_code=404, detail="Account not found")
         
         account_name = account['name']
-        logger.info(f"Account: {account_name}")
-        
-        # Use saved password if not provided
         if not password and account.get('pdf_password'):
             password = account['pdf_password']
         
-        # Get parser with custom pattern if available
         custom_pattern = account.get('custom_parser')
         parser = get_simple_parser(account_name, custom_pattern)
-        logger.info(f"Using parser with custom pattern: {bool(custom_pattern)}")
-        
-        # Parse transactions
         parsed_transactions = parser.parse(contents, password or None)
         logger.info(f"Parsed {len(parsed_transactions)} transactions")
         
         if not parsed_transactions:
-            # Try to extract text for debugging
-            try:
-                text_preview = parser.extract_text(contents)[:500]
-                logger.warning(f"No transactions parsed. Text preview: {text_preview}")
-            except:
-                pass
-            
             return {
                 "message": "No transactions found in PDF",
                 "imported_count": 0,
-                "note": f"Unable to parse transactions for {account_name}. Try configuring a parser via Parser Builder, or use CSV import. Check backend logs for details."
+                "note": f"Unable to parse transactions for {account_name}. Try configuring a parser via Parser Builder."
             }
         
-        # Import parsed transactions
         imported_count = 0
+        uid = user["user_id"]
         for txn_data in parsed_transactions:
-            # Check if transaction already exists (avoid duplicates)
             existing = await db.transactions.find_one({
-                "account_id": account_id,
-                "date": txn_data['date'],
-                "description": txn_data['description'],
+                "account_id": account_id, "user_id": uid,
+                "date": txn_data['date'], "description": txn_data['description'],
                 "amount": txn_data['amount']
             })
-            
             if existing:
                 continue
             
             txn = Transaction(
+                user_id=uid,
                 account_id=account_id,
                 date=txn_data['date'],
                 description=txn_data['description'],
@@ -561,7 +696,6 @@ async def upload_statement(
             doc['created_at'] = doc['created_at'].isoformat()
             await db.transactions.insert_one(doc)
             
-            # Update balance
             balance_change = txn_data['amount'] if txn_data['type'] == "credit" else -txn_data['amount']
             await db.accounts.update_one(
                 {"id": account_id},
@@ -585,7 +719,8 @@ async def upload_statement(
 async def build_parser(
     file: UploadFile = File(...),
     account_id: str = Query(...),
-    password: str = Query(default="")
+    password: str = Query(default=""),
+    user: Dict = Depends(get_current_user)
 ):
     """Extract text from PDF and auto-detect the best parsing strategy"""
     if not file.filename.endswith('.pdf'):
@@ -593,14 +728,12 @@ async def build_parser(
 
     try:
         contents = await file.read()
-        account = await db.accounts.find_one({"id": account_id})
+        account = await db.accounts.find_one({"id": account_id, "user_id": user["user_id"]})
         if not account:
             raise HTTPException(status_code=404, detail="Account not found")
 
         parser = get_simple_parser(account['name'])
         text = parser.extract_text(contents, password or None)
-
-        # Auto-detect best strategy
         detection = parser.detect_best_strategy(contents, password or None)
 
         return {
@@ -620,27 +753,24 @@ async def build_parser(
 async def save_parser_pattern(
     account_id: str = Query(...),
     password: str = Query(default=""),
-    strategy: str = Query(default="")
+    strategy: str = Query(default=""),
+    user: Dict = Depends(get_current_user)
 ):
     """Save the detected parser strategy and password for an account"""
     update_data = {}
-
     if strategy:
         update_data["custom_parser"] = {"strategy": strategy}
     else:
         update_data["custom_parser"] = None
-
     if password:
         update_data["pdf_password"] = password
 
     result = await db.accounts.update_one(
-        {"id": account_id},
+        {"id": account_id, "user_id": user["user_id"]},
         {"$set": update_data}
     )
-
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Account not found")
-
     return {"message": "Parser pattern saved successfully", "strategy": strategy}
 
 @api_router.post("/test-parser-pattern")
@@ -648,20 +778,19 @@ async def test_parser_pattern(
     file: UploadFile = File(...),
     account_id: str = Query(...),
     pattern: str = Query(...),
-    password: str = Query(default="")
+    password: str = Query(default=""),
+    user: Dict = Depends(get_current_user)
 ):
     """Test a custom regex pattern"""
     try:
         contents = await file.read()
-        account = await db.accounts.find_one({"id": account_id})
+        account = await db.accounts.find_one({"id": account_id, "user_id": user["user_id"]})
         if not account:
             raise HTTPException(status_code=404, detail="Account not found")
         
-        # Create temporary parser with test pattern
         import json
         test_pattern = json.loads(pattern)
         parser = get_simple_parser(account['name'], test_pattern)
-        
         transactions = parser.parse(contents, password or None)
         
         return {
@@ -715,7 +844,11 @@ async def debug_pdf_upload(
 
 # CSV Import endpoint
 @api_router.post("/import-csv")
-async def import_csv(file: UploadFile = File(...), account_id: str = Query(...)):
+async def import_csv(
+    file: UploadFile = File(...),
+    account_id: str = Query(...),
+    user: Dict = Depends(get_current_user)
+):
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
     
@@ -727,13 +860,14 @@ async def import_csv(file: UploadFile = File(...), account_id: str = Query(...))
         if len(lines) < 2:
             raise HTTPException(status_code=400, detail="CSV file is empty or invalid")
         
-        # Expected format: date,description,amount,type (credit/debit)
+        uid = user["user_id"]
         imported_count = 0
         for line in lines[1:]:
             parts = line.split(',', 3)
             if len(parts) >= 4:
                 date, description, amount, txn_type = parts
                 txn = Transaction(
+                    user_id=uid,
                     account_id=account_id,
                     date=date.strip(),
                     description=description.strip(),
@@ -744,7 +878,6 @@ async def import_csv(file: UploadFile = File(...), account_id: str = Query(...))
                 doc['created_at'] = doc['created_at'].isoformat()
                 await db.transactions.insert_one(doc)
                 
-                # Update balance
                 account = await db.accounts.find_one({"id": account_id})
                 if account:
                     balance_change = float(amount.strip()) if txn_type.strip().lower() == "credit" else -float(amount.strip())
@@ -758,23 +891,103 @@ async def import_csv(file: UploadFile = File(...), account_id: str = Query(...))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error importing CSV: {str(e)}")
 
+# ─── AI Categorization Endpoint ───────────────────────────────────────
+@api_router.post("/ai-categorize")
+async def ai_categorize_transactions(
+    transaction_ids: List[str] = [],
+    user: Dict = Depends(get_current_user)
+):
+    """Use AI to auto-categorize uncategorized transactions"""
+    uid = user["user_id"]
+
+    query = {"user_id": uid, "category_id": None, "is_transfer": False}
+    if transaction_ids:
+        query["id"] = {"$in": transaction_ids}
+
+    txns = await db.transactions.find(query, {"_id": 0}).to_list(500)
+    if not txns:
+        return {"message": "No uncategorized transactions found", "categorized_count": 0}
+
+    categories = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(100)
+    category_names = [c['name'] for c in categories if c['name'] != 'Transfer']
+    category_map = {c['name'].lower(): c['id'] for c in categories}
+
+    descriptions = [{"id": t["id"], "desc": t["description"], "amount": t["amount"], "type": t["transaction_type"]} for t in txns[:100]]
+
+    prompt = f"""Categorize the following financial transactions into one of these categories: {', '.join(category_names)}.
+
+Return ONLY a JSON array with objects having "id" and "category" fields. No explanation.
+
+Transactions:
+{[{"id": d["id"], "description": d["desc"], "amount": d["amount"], "type": d["type"]} for d in descriptions]}"""
+
+    try:
+        from emergentintegrations.llm.gemini import GeminiConfig, gemini_text_generation
+        config = GeminiConfig(
+            emergent_api_key=os.environ.get("EMERGENT_LLM_KEY", ""),
+            model="gemini-2.5-flash",
+            system_prompt="You are a financial transaction categorizer. Return only valid JSON."
+        )
+        response = await gemini_text_generation(config=config, prompt=prompt)
+
+        import json
+        json_text = response.strip()
+        if "```json" in json_text:
+            json_text = json_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in json_text:
+            json_text = json_text.split("```")[1].split("```")[0].strip()
+
+        categorizations = json.loads(json_text)
+
+        categorized_count = 0
+        for item in categorizations:
+            txn_id = item.get("id")
+            cat_name = item.get("category", "").lower()
+            cat_id = category_map.get(cat_name)
+            if txn_id and cat_id:
+                result = await db.transactions.update_one(
+                    {"id": txn_id, "user_id": uid},
+                    {"$set": {"category_id": cat_id}}
+                )
+                if result.modified_count > 0:
+                    categorized_count += 1
+
+        return {
+            "message": f"Categorized {categorized_count} of {len(txns)} transactions",
+            "categorized_count": categorized_count,
+            "total_uncategorized": len(txns)
+        }
+    except Exception as e:
+        logger.error(f"AI categorization error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"AI categorization failed: {str(e)}")
+
+# ─── Backup Endpoint ────────────────────────────────────────────────
+@api_router.get("/backup/export")
+async def export_backup(user: Dict = Depends(get_current_user)):
+    """Export all user data as JSON for local backup"""
+    uid = user["user_id"]
+    accounts = await db.accounts.find({"user_id": uid}, {"_id": 0}).to_list(1000)
+    transactions = await db.transactions.find({"user_id": uid}, {"_id": 0}).to_list(50000)
+    categories = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(100)
+
+    return {
+        "export_date": datetime.now(timezone.utc).isoformat(),
+        "user": {"email": user["email"], "name": user["name"]},
+        "accounts": accounts,
+        "transactions": transactions,
+        "categories": categories
+    }
+
 # Include the router in the main app
 app.include_router(api_router)
 
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=["https://money-insights-82.preview.emergentagent.com", "http://localhost:3000"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
