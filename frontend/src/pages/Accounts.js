@@ -6,7 +6,8 @@ import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Trash, Pencil } from '@phosphor-icons/react';
+import { Plus, Trash, Pencil, Sparkle } from '@phosphor-icons/react';
+import ParserBuilder from './ParserBuilder';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -14,6 +15,8 @@ const API = `${BACKEND_URL}/api`;
 const Accounts = () => {
   const [accounts, setAccounts] = useState([]);
   const [open, setOpen] = useState(false);
+  const [parserBuilderOpen, setParserBuilderOpen] = useState(false);
+  const [selectedAccount, setSelectedAccount] = useState(null);
   const [editingAccount, setEditingAccount] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
@@ -75,6 +78,16 @@ const Accounts = () => {
       start_balance: account.start_balance
     });
     setOpen(true);
+  };
+
+  const openParserBuilder = (account) => {
+    setSelectedAccount(account);
+    setParserBuilderOpen(true);
+  };
+
+  const handleParserSaved = () => {
+    loadAccounts();
+    toast.success('Parser configured successfully!');
   };
 
   return (
@@ -171,6 +184,14 @@ const Accounts = () => {
               </div>
               <div className="flex gap-2">
                 <button
+                  onClick={() => openParserBuilder(account)}
+                  data-testid={`build-parser-${account.id}`}
+                  className="text-[#7CA1A6] hover:text-[#5C745A] transition-colors duration-200"
+                  title="Build PDF Parser"
+                >
+                  <Sparkle size={18} weight="fill" />
+                </button>
+                <button
                   onClick={() => handleEdit(account)}
                   data-testid={`edit-account-${account.id}`}
                   className="text-[#5C745A] hover:text-[#475F45] transition-colors duration-200"
@@ -202,10 +223,29 @@ const Accounts = () => {
                   ₹{account.start_balance.toFixed(2)}
                 </div>
               </div>
+              {account.custom_parser && (
+                <div className="mt-3 px-2 py-1 bg-[#E7F3F0] border border-[#5C745A] rounded text-xs flex items-center gap-1" style={{ color: '#2D4A39' }}>
+                  <Sparkle size={14} weight="fill" />
+                  Custom parser configured
+                </div>
+              )}
             </div>
           </div>
         ))}
       </div>
+
+      {/* Parser Builder Modal */}
+      {selectedAccount && (
+        <ParserBuilder
+          account={selectedAccount}
+          open={parserBuilderOpen}
+          onClose={() => {
+            setParserBuilderOpen(false);
+            setSelectedAccount(null);
+          }}
+          onSave={handleParserSaved}
+        />
+      )}
 
       {accounts.length === 0 && (
         <div className="bg-white border border-[#E5E2DC] rounded-lg p-12 text-center">
