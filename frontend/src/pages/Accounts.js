@@ -26,7 +26,8 @@ const Accounts = () => {
     name: '',
     account_type: 'bank',
     start_balance: 0,
-    email_filter: ''
+    email_filter: '',
+    pdf_password: ''
   });
 
   useEffect(() => {
@@ -55,7 +56,7 @@ const Accounts = () => {
       }
       setOpen(false);
       setEditingAccount(null);
-      setFormData({ name: '', account_type: 'bank', start_balance: 0, email_filter: '' });
+      setFormData({ name: '', account_type: 'bank', start_balance: 0, email_filter: '', pdf_password: '' });
       loadAccounts();
     } catch (err) {
       toast.error('Failed to save account');
@@ -81,7 +82,8 @@ const Accounts = () => {
       name: account.name,
       account_type: account.account_type,
       start_balance: account.start_balance,
-      email_filter: account.email_filter || ''
+      email_filter: account.email_filter || '',
+      pdf_password: account.pdf_password || ''
     });
     setOpen(true);
   };
@@ -142,7 +144,7 @@ const Accounts = () => {
               className="themed-btn-primary focus:ring-2 focus:ring-[#5C745A]/50 rounded-lg"
               onClick={() => {
                 setEditingAccount(null);
-                setFormData({ name: '', account_type: 'bank', start_balance: 0, email_filter: '' });
+                setFormData({ name: '', account_type: 'bank', start_balance: 0, email_filter: '', pdf_password: '' });
               }}
             >
               <Plus size={18} className="mr-2" />
@@ -204,6 +206,18 @@ const Accounts = () => {
                   placeholder="e.g., HDFC Bank Statement"
                 />
                 <p className="text-xs mt-1" style={{ color: 'var(--app-text-muted)' }}>Keyword to match in email subject for auto-importing statements</p>
+              </div>
+              <div>
+                <Label htmlFor="pdf_password">PDF Password (for encrypted statements)</Label>
+                <Input
+                  id="pdf_password"
+                  type="password"
+                  data-testid="account-pdf-password-input"
+                  value={formData.pdf_password}
+                  onChange={e => setFormData({...formData, pdf_password: e.target.value})}
+                  placeholder="Leave blank if not password-protected"
+                />
+                <p className="text-xs mt-1" style={{ color: 'var(--app-text-muted)' }}>Password to open encrypted PDF statements (e.g., DOB or PAN for HDFC)</p>
               </div>
               <Button 
                 type="submit" 
@@ -274,6 +288,11 @@ const Accounts = () => {
                 <div className="mt-3 px-2 py-1 bg-[var(--app-accent-light)] border border-[var(--app-accent)] rounded text-xs flex items-center gap-1" style={{ color: 'var(--app-accent-text)' }}>
                   <Sparkle size={14} weight="fill" />
                   Custom parser configured
+                </div>
+              )}
+              {account.pdf_password && (
+                <div className="mt-2 px-2 py-1 rounded text-xs flex items-center gap-1" style={{ background: 'var(--app-badge-bg)', color: 'var(--app-text-secondary)' }}>
+                  PDF password set
                 </div>
               )}
               {account.email_filter && (

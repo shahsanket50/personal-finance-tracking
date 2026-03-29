@@ -11,7 +11,7 @@ const API = process.env.REACT_APP_BACKEND_URL + '/api';
 
 const Settings = () => {
   const { theme, setTheme, themes } = useTheme();
-  const [emailConfig, setEmailConfig] = useState({ imap_server: 'imap.gmail.com', email_address: '', app_password: '' });
+  const [emailConfig, setEmailConfig] = useState({ imap_server: 'imap.gmail.com', email_address: '', app_password: '', sync_since: '' });
   const [emailConfigured, setEmailConfigured] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanResults, setScanResults] = useState(null);
@@ -29,7 +29,8 @@ const Settings = () => {
           ...prev,
           imap_server: res.data.imap_server,
           email_address: res.data.email_address,
-          app_password: ''
+          app_password: '',
+          sync_since: res.data.sync_since || ''
         }));
       }
     } catch {}
@@ -152,6 +153,17 @@ const Settings = () => {
               value={emailConfig.imap_server}
               onChange={e => setEmailConfig({...emailConfig, imap_server: e.target.value})}
             />
+          </div>
+          <div>
+            <Label htmlFor="sync_since">Sync emails since</Label>
+            <Input
+              id="sync_since"
+              type="date"
+              data-testid="email-config-sync-since"
+              value={emailConfig.sync_since}
+              onChange={e => setEmailConfig({...emailConfig, sync_since: e.target.value})}
+            />
+            <p className="text-xs mt-1" style={{ color: 'var(--app-text-muted)' }}>Only scan emails received after this date. Leave blank to scan all.</p>
           </div>
           <div className="flex gap-3">
             <Button

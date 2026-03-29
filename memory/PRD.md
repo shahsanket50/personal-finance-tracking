@@ -21,8 +21,9 @@ Track personal finances across 4-5 credit cards, 2-3 bank accounts, investments,
 - [x] Theme picker in **Settings page** (moved from sidebar — Mar 2026)
 - [x] Dashboard with summary cards + Export Backup button
 - [x] Accounts CRUD with start balance + email filter per account
-- [x] **Account-level email sync** with Sync Email button per account card (Mar 2026)
-- [x] **Sync History dialog** per account showing logs (Mar 2026)
+- [x] Account-level email sync with Sync Email button + sync history dialog
+- [x] **PDF password field per account** for encrypted statements (Mar 2026)
+- [x] **"Sync since" date** in email settings to limit scan range (Mar 2026)
 - [x] Transactions CRUD with balance updates
 - [x] Categories (10 defaults per user + custom) with color coding
 - [x] Upload page supporting PDF and CSV

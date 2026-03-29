@@ -1044,6 +1044,7 @@ class EmailConfigModel(BaseModel):
     imap_server: str = "imap.gmail.com"
     email_address: str
     app_password: str
+    sync_since: Optional[str] = None  # ISO date string like "2024-01-01"
 
 @api_router.post("/email-config")
 async def save_email_config(config: EmailConfigModel, user: Dict = Depends(get_current_user)):
@@ -1054,6 +1055,7 @@ async def save_email_config(config: EmailConfigModel, user: Dict = Depends(get_c
         "imap_server": config.imap_server,
         "email_address": config.email_address,
         "app_password": config.app_password,
+        "sync_since": config.sync_since,
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
     await db.email_configs.update_one(
@@ -1073,7 +1075,8 @@ async def get_email_config(user: Dict = Depends(get_current_user)):
         "configured": True,
         "imap_server": config["imap_server"],
         "email_address": config["email_address"],
-        "has_password": bool(config.get("app_password"))
+        "has_password": bool(config.get("app_password")),
+        "sync_since": config.get("sync_since", "")
     }
 
 @api_router.post("/email-scan")
@@ -1089,6 +1092,16 @@ async def scan_email_for_statements(user: Dict = Depends(get_current_user)):
     email_config = await db.email_configs.find_one({"user_id": uid}, {"_id": 0})
     if not email_config or not email_config.get("app_password"):
         raise HTTPException(status_code=400, detail="Email not configured. Go to Settings to set up email scanning.")
+
+    # Build IMAP date filter from sync_since
+    sync_since_imap = ""
+    if email_config.get("sync_since"):
+        try:
+            from datetime import datetime as dt
+            d = dt.strptime(email_config["sync_since"], "%Y-%m-%d")
+            sync_since_imap = d.strftime("%d-%b-%Y")  # e.g. "01-Jan-2024"
+        except Exception:
+            pass
 
     accounts = await db.accounts.find({"user_id": uid}, {"_id": 0}).to_list(100)
     accounts_with_filters = [a for a in accounts if a.get("email_filter")]
@@ -1118,14 +1131,15 @@ async def scan_email_for_statements(user: Dict = Depends(get_current_user)):
             account_id = account["id"]
             account_name = account["name"]
 
-            _, msg_nums = mail.search(None, f'(SUBJECT "{filter_text}")')
+            date_criteria = f' SINCE {sync_since_imap}' if sync_since_imap else ''
+            _, msg_nums = mail.search(None, f'(SUBJECT "{filter_text}"{date_criteria})')
             if not msg_nums[0]:
-                _, msg_nums = mail.search(None, f'(BODY "{filter_text}")')
+                _, msg_nums = mail.search(None, f'(BODY "{filter_text}"{date_criteria})')
             if not msg_nums[0] and len(filter_text.split()) > 2:
                 words = [w for w in filter_text.split() if len(w) > 3][:4]
                 if words:
                     criteria = ' '.join(f'SUBJECT "{w}"' for w in words)
-                    _, msg_nums = mail.search(None, f'({criteria})')
+                    _, msg_nums = mail.search(None, f'({criteria}{date_criteria})')
 
             message_ids = msg_nums[0].split()[-10:] if msg_nums[0] else []
 
@@ -1258,19 +1272,30 @@ async def sync_account_email(account_id: str, user: Dict = Depends(get_current_u
     files_found = []
     emails_matched = 0
 
+    # Build IMAP date filter from sync_since
+    sync_since_imap = ""
+    if email_config.get("sync_since"):
+        try:
+            from datetime import datetime as dt
+            d = dt.strptime(email_config["sync_since"], "%Y-%m-%d")
+            sync_since_imap = d.strftime("%d-%b-%Y")
+        except Exception:
+            pass
+
     try:
         filter_text = account["email_filter"]
+        date_criteria = f' SINCE {sync_since_imap}' if sync_since_imap else ''
         # Strategy 1: Exact subject match
-        _, msg_nums = mail.search(None, f'(SUBJECT "{filter_text}")')
+        _, msg_nums = mail.search(None, f'(SUBJECT "{filter_text}"{date_criteria})')
         # Strategy 2: Body search fallback
         if not msg_nums[0]:
-            _, msg_nums = mail.search(None, f'(BODY "{filter_text}")')
+            _, msg_nums = mail.search(None, f'(BODY "{filter_text}"{date_criteria})')
         # Strategy 3: Search with individual key words if filter has multiple words
         if not msg_nums[0] and len(filter_text.split()) > 2:
             words = [w for w in filter_text.split() if len(w) > 3][:4]
             if words:
                 criteria = ' '.join(f'SUBJECT "{w}"' for w in words)
-                _, msg_nums = mail.search(None, f'({criteria})')
+                _, msg_nums = mail.search(None, f'({criteria}{date_criteria})')
 
         message_ids = msg_nums[0].split()[-15:] if msg_nums[0] else []
         emails_matched = len(message_ids)
