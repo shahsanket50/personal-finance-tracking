@@ -102,10 +102,15 @@ const Accounts = () => {
     setSyncingId(account.id);
     try {
       const res = await axios.post(`${API}/accounts/${account.id}/sync`);
-      if (res.data.emails_matched === 0) {
+      const status = res.data.status || '';
+      if (['password_error', 'parse_error'].includes(status)) {
+        toast.error(res.data.message);
+      } else if (['no_match', 'no_pdfs', 'no_transactions'].includes(status)) {
         toast.warning(res.data.message);
-      } else {
+      } else if (res.data.total_imported > 0) {
         toast.success(res.data.message);
+      } else {
+        toast.info(res.data.message);
       }
       loadAccounts();
     } catch (err) {
@@ -364,49 +369,87 @@ const Accounts = () => {
                 No sync history yet. Click "Sync Email" on the account card to start.
               </p>
             ) : (
-              syncHistory.map((log, i) => (
-                <div key={i} data-testid={`sync-log-${i}`} className="rounded-lg p-3 border text-sm" style={{ background: 'var(--app-card-bg)', borderColor: 'var(--app-card-border)' }}>
-                  <div className="flex justify-between items-center mb-1.5">
-                    <span className={`text-xs font-semibold uppercase tracking-wide ${
-                      log.status === 'success' ? 'text-green-600' : log.status === 'no_match' ? 'text-yellow-600' : 'text-red-500'
-                    }`}>
-                      {log.status === 'no_match' ? 'NO MATCH' : log.status?.toUpperCase()}
-                    </span>
-                    <span className="text-xs" style={{ color: 'var(--app-text-muted)' }}>
-                      {new Date(log.synced_at).toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="flex gap-4 text-xs flex-wrap" style={{ color: 'var(--app-text-secondary)' }}>
-                    <span>Imported: <strong style={{ color: 'var(--app-text)' }}>{log.imported}</strong></span>
-                    <span>Skipped: <strong style={{ color: 'var(--app-text)' }}>{log.skipped}</strong></span>
-                    {log.emails_matched !== undefined && (
-                      <span>Emails matched: <strong style={{ color: 'var(--app-text)' }}>{log.emails_matched}</strong></span>
+              syncHistory.map((log, i) => {
+                const statusConfig = {
+                  success: { label: 'IMPORTED', color: 'text-green-600' },
+                  up_to_date: { label: 'UP TO DATE', color: 'text-blue-500' },
+                  all_duplicates: { label: 'NO NEW DATA', color: 'text-blue-500' },
+                  no_match: { label: 'NO EMAILS FOUND', color: 'text-yellow-600' },
+                  no_pdfs: { label: 'NO PDFs', color: 'text-yellow-600' },
+                  no_transactions: { label: 'PARSE EMPTY', color: 'text-orange-500' },
+                  password_error: { label: 'WRONG PASSWORD', color: 'text-red-500' },
+                  parse_error: { label: 'PARSE FAILED', color: 'text-red-500' },
+                  failed: { label: 'FAILED', color: 'text-red-500' },
+                };
+                const sc = statusConfig[log.status] || { label: log.status?.toUpperCase(), color: 'text-gray-500' };
+
+                return (
+                  <div key={i} data-testid={`sync-log-${i}`} className="rounded-lg p-3 border text-sm" style={{ background: 'var(--app-card-bg)', borderColor: 'var(--app-card-border)' }}>
+                    <div className="flex justify-between items-center mb-1.5">
+                      <span className={`text-xs font-semibold uppercase tracking-wide ${sc.color}`}>
+                        {sc.label}
+                      </span>
+                      <span className="text-xs" style={{ color: 'var(--app-text-muted)' }}>
+                        {new Date(log.synced_at).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex gap-4 text-xs flex-wrap" style={{ color: 'var(--app-text-secondary)' }}>
+                      {log.imported > 0 && (
+                        <span>New: <strong className="text-green-600">{log.imported}</strong></span>
+                      )}
+                      {log.skipped > 0 && (
+                        <span>Already synced: <strong style={{ color: 'var(--app-text)' }}>{log.skipped}</strong></span>
+                      )}
+                      {log.emails_matched !== undefined && log.emails_matched > 0 && (
+                        <span>Emails: <strong style={{ color: 'var(--app-text)' }}>{log.emails_matched}</strong></span>
+                      )}
+                      {log.files?.length > 0 && (
+                        <span>PDFs: <strong style={{ color: 'var(--app-text)' }}>{log.files.length}</strong></span>
+                      )}
+                    </div>
+                    {log.error && (
+                      <p className="mt-1.5 text-xs text-red-500">{log.error}</p>
+                    )}
+                    {log.status === 'password_error' && (
+                      <p className="mt-1 text-xs text-red-400">
+                        Edit this account and set the correct PDF password, then re-sync.
+                      </p>
+                    )}
+                    {log.status === 'no_match' && (
+                      <p className="mt-1 text-xs text-yellow-600">
+                        Edit the account's email filter to match your bank statement email subjects.
+                      </p>
+                    )}
+                    {log.status === 'parse_error' && (
+                      <p className="mt-1 text-xs text-orange-500">
+                        Configure a custom parser for this account via the parser builder.
+                      </p>
+                    )}
+                    {log.files?.length > 0 && (
+                      <div className="mt-2 space-y-1 border-t pt-2" style={{ borderColor: 'var(--app-card-border)' }}>
+                        {log.files.map((f, j) => {
+                          const fColor = f.status === 'imported' ? 'text-green-600'
+                            : f.status === 'all_duplicates' ? 'text-blue-500'
+                            : f.status === 'password_error' ? 'text-red-500'
+                            : f.status === 'parse_error' ? 'text-red-500'
+                            : 'text-yellow-600';
+                          const fLabel = f.status === 'imported' ? `${f.transactions_imported} new`
+                            : f.status === 'all_duplicates' ? `${f.transactions_found} existing`
+                            : f.status === 'password_error' ? 'password error'
+                            : f.status === 'parse_error' ? 'parse failed'
+                            : '0 txns';
+                          return (
+                            <div key={j} className="flex items-center justify-between text-xs">
+                              <span className="truncate flex-1 mr-2" style={{ color: 'var(--app-text-muted)' }}>{f.filename}</span>
+                              <span className={`shrink-0 font-medium ${fColor}`}>{fLabel}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     )}
                   </div>
-                  {log.filter_used && (
-                    <p className="mt-1 text-xs" style={{ color: 'var(--app-text-muted)' }}>
-                      Filter: "{log.filter_used}"
-                    </p>
-                  )}
-                  {log.error && (
-                    <p className="mt-1 text-xs text-red-500">{log.error}</p>
-                  )}
-                  {log.status === 'no_match' && (
-                    <p className="mt-1 text-xs text-yellow-600">
-                      Tip: Edit the account's email filter keyword to match your bank statement email subjects.
-                    </p>
-                  )}
-                  {log.files?.length > 0 && (
-                    <div className="mt-2 space-y-1">
-                      {log.files.map((f, j) => (
-                        <p key={j} className="text-xs" style={{ color: 'var(--app-text-muted)' }}>
-                          {f.filename} — {f.transactions_imported}/{f.transactions_found} txns
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </DialogContent>

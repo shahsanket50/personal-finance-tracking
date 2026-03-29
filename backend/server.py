@@ -1313,6 +1313,7 @@ async def sync_account_email(account_id: str, user: Dict = Depends(get_current_u
                 total_skipped += 1
                 continue
 
+            email_had_success = False
             for part in email_message.walk():
                 if part.get_content_type() == "application/pdf":
                     filename = part.get_filename() or "statement.pdf"
@@ -1324,12 +1325,15 @@ async def sync_account_email(account_id: str, user: Dict = Depends(get_current_u
                     custom_pattern = account.get("custom_parser")
                     parser = get_simple_parser(account["name"], custom_pattern)
 
+                    parse_error = None
                     try:
                         parsed_txns = parser.parse(pdf_data, password or None)
-                    except Exception:
+                    except Exception as parse_ex:
                         parsed_txns = []
+                        parse_error = str(parse_ex)
 
                     imported_count = 0
+                    duplicate_count = 0
                     for txn_data in parsed_txns:
                         existing = await db.transactions.find_one({
                             "account_id": account_id, "user_id": uid,
@@ -1337,6 +1341,7 @@ async def sync_account_email(account_id: str, user: Dict = Depends(get_current_u
                             "amount": txn_data["amount"]
                         })
                         if existing:
+                            duplicate_count += 1
                             continue
                         txn = Transaction(
                             user_id=uid, account_id=account_id,
@@ -1349,41 +1354,91 @@ async def sync_account_email(account_id: str, user: Dict = Depends(get_current_u
                         imported_count += 1
 
                     total_imported += imported_count
+
+                    # Determine per-file status
+                    if parse_error:
+                        err_lower = parse_error.lower()
+                        if "password" in err_lower or "encrypt" in err_lower or "decrypt" in err_lower:
+                            file_status = "password_error"
+                        else:
+                            file_status = "parse_error"
+                    elif len(parsed_txns) == 0:
+                        file_status = "no_transactions"
+                    elif imported_count > 0:
+                        file_status = "imported"
+                        email_had_success = True
+                    else:
+                        file_status = "all_duplicates"
+                        email_had_success = True
+
                     files_found.append({
                         "filename": filename,
                         "subject": subject[:80],
                         "email_date": email_date[:30],
                         "transactions_found": len(parsed_txns),
-                        "transactions_imported": imported_count
+                        "transactions_imported": imported_count,
+                        "duplicates": duplicate_count,
+                        "status": file_status,
+                        "error": parse_error[:120] if parse_error else None
                     })
 
-            await db.processed_emails.insert_one({
-                "email_hash": email_hash, "user_id": uid,
-                "account_id": account_id, "message_id": message_id,
-                "processed_at": datetime.now(timezone.utc).isoformat()
-            })
+            # Only mark as processed if parsing succeeded
+            # Failed PDFs (wrong password / parse error) should be retryable
+            if email_had_success:
+                await db.processed_emails.insert_one({
+                    "email_hash": email_hash, "user_id": uid,
+                    "account_id": account_id, "message_id": message_id,
+                    "processed_at": datetime.now(timezone.utc).isoformat()
+                })
     finally:
         mail.logout()
 
     # Build informative message
     filter_text = account["email_filter"]
+    password_errors = sum(1 for f in files_found if f.get("status") == "password_error")
+    parse_errors = sum(1 for f in files_found if f.get("status") == "parse_error")
+    no_txn_files = sum(1 for f in files_found if f.get("status") == "no_transactions")
+    dup_files = sum(1 for f in files_found if f.get("status") == "all_duplicates")
+    imported_files = sum(1 for f in files_found if f.get("status") == "imported")
+    total_pdfs = len(files_found)
+
     if emails_matched == 0:
-        msg = f"No emails found matching filter \"{filter_text}\". Try adjusting the email filter keyword on this account."
+        msg = f"No emails found matching filter \"{filter_text}\". Try adjusting the email filter keyword."
         status = "no_match"
-    elif total_imported == 0 and total_skipped > 0:
-        msg = f"Found {emails_matched} emails matching \"{filter_text}\" but all were already processed. Skipped {total_skipped}."
-        status = "success"
-    elif total_imported == 0:
-        msg = f"Found {emails_matched} emails matching \"{filter_text}\" but no PDF attachments with parseable transactions."
-        status = "success"
+    elif total_pdfs == 0 and total_skipped > 0:
+        msg = f"All {total_skipped} matching emails were already synced."
+        status = "up_to_date"
+    elif total_pdfs == 0:
+        msg = f"Found {emails_matched} emails but none contained PDF attachments."
+        status = "no_pdfs"
+    elif password_errors > 0 and total_imported == 0:
+        msg = f"Found {total_pdfs} PDFs but couldn't open them — wrong or missing PDF password. Update the password on this account and re-sync."
+        status = "password_error"
+    elif parse_errors > 0 and total_imported == 0:
+        msg = f"Found {total_pdfs} PDFs but couldn't extract transactions. Check if a custom parser is configured for this account."
+        status = "parse_error"
+    elif total_imported == 0 and dup_files > 0:
+        msg = f"Found {total_pdfs} PDFs — all {sum(f.get('transactions_found', 0) for f in files_found)} transactions already exist. Nothing new to import."
+        status = "all_duplicates"
+    elif total_imported == 0 and no_txn_files > 0:
+        msg = f"Found {total_pdfs} PDFs but no transactions could be extracted. The parser may not support this statement format."
+        status = "no_transactions"
     else:
-        msg = f"Synced {account['name']}: imported {total_imported} transactions from {len(files_found)} PDFs. ({emails_matched} emails matched \"{filter_text}\")"
+        parts = [f"Imported {total_imported} new transactions from {imported_files} PDFs."]
+        if dup_files > 0:
+            parts.append(f"{dup_files} PDFs had only existing transactions.")
+        if password_errors > 0:
+            parts.append(f"{password_errors} PDFs couldn't be opened (wrong password).")
+        if total_skipped > 0:
+            parts.append(f"{total_skipped} emails already synced.")
+        msg = " ".join(parts)
         status = "success"
 
     await _log_sync(uid, account_id, account["name"], status, total_imported, total_skipped, None, files_found, filter_text, emails_matched)
 
     return {
         "message": msg,
+        "status": status,
         "total_imported": total_imported,
         "total_skipped": total_skipped,
         "emails_matched": emails_matched,
