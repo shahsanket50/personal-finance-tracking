@@ -1166,6 +1166,143 @@ async def scan_email_for_statements(user: Dict = Depends(get_current_user)):
         "details": results
     }
 
+# ─── Account-level Email Sync ────────────────────────────────────────
+@api_router.post("/accounts/{account_id}/sync")
+async def sync_account_email(account_id: str, user: Dict = Depends(get_current_user)):
+    """Sync email statements for a specific account"""
+    import imaplib
+    import email as email_lib
+    import hashlib
+
+    uid = user["user_id"]
+    account = await db.accounts.find_one({"id": account_id, "user_id": uid}, {"_id": 0})
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    if not account.get("email_filter"):
+        raise HTTPException(status_code=400, detail="No email filter configured for this account. Edit the account to add one.")
+
+    email_config = await db.email_configs.find_one({"user_id": uid}, {"_id": 0})
+    if not email_config or not email_config.get("app_password"):
+        raise HTTPException(status_code=400, detail="Email not configured. Go to Settings to set up email scanning.")
+
+    try:
+        mail = imaplib.IMAP4_SSL(email_config["imap_server"])
+        mail.login(email_config["email_address"], email_config["app_password"])
+        mail.select("INBOX")
+    except Exception as e:
+        # Log sync attempt
+        await _log_sync(uid, account_id, account["name"], "failed", 0, 0, str(e))
+        raise HTTPException(status_code=400, detail=f"Email connection failed: {str(e)}")
+
+    total_imported = 0
+    total_skipped = 0
+    files_found = []
+
+    try:
+        filter_text = account["email_filter"]
+        _, msg_nums = mail.search(None, f'(SUBJECT "{filter_text}")')
+        if not msg_nums[0]:
+            _, msg_nums = mail.search(None, f'(BODY "{filter_text}")')
+
+        message_ids = msg_nums[0].split()[-15:]
+
+        for msg_num in message_ids:
+            _, msg_data = mail.fetch(msg_num, "(RFC822)")
+            email_message = email_lib.message_from_bytes(msg_data[0][1])
+            message_id = email_message.get("Message-ID", "")
+            email_hash = hashlib.md5(f"{message_id}_{account_id}".encode()).hexdigest()
+            subject = str(email_message.get("Subject", ""))
+            email_date = str(email_message.get("Date", ""))
+
+            already_processed = await db.processed_emails.find_one({"email_hash": email_hash, "user_id": uid})
+            if already_processed:
+                total_skipped += 1
+                continue
+
+            for part in email_message.walk():
+                if part.get_content_type() == "application/pdf":
+                    filename = part.get_filename() or "statement.pdf"
+                    pdf_data = part.get_payload(decode=True)
+                    if not pdf_data:
+                        continue
+
+                    password = account.get("pdf_password", "")
+                    custom_pattern = account.get("custom_parser")
+                    parser = get_simple_parser(account["name"], custom_pattern)
+
+                    try:
+                        parsed_txns = parser.parse(pdf_data, password or None)
+                    except Exception:
+                        parsed_txns = []
+
+                    imported_count = 0
+                    for txn_data in parsed_txns:
+                        existing = await db.transactions.find_one({
+                            "account_id": account_id, "user_id": uid,
+                            "date": txn_data["date"], "description": txn_data["description"],
+                            "amount": txn_data["amount"]
+                        })
+                        if existing:
+                            continue
+                        txn = Transaction(
+                            user_id=uid, account_id=account_id,
+                            date=txn_data["date"], description=txn_data["description"],
+                            amount=txn_data["amount"], transaction_type=txn_data["type"]
+                        )
+                        doc = txn.model_dump()
+                        doc["created_at"] = doc["created_at"].isoformat()
+                        await db.transactions.insert_one(doc)
+                        imported_count += 1
+
+                    total_imported += imported_count
+                    files_found.append({
+                        "filename": filename,
+                        "subject": subject[:80],
+                        "email_date": email_date[:30],
+                        "transactions_found": len(parsed_txns),
+                        "transactions_imported": imported_count
+                    })
+
+            await db.processed_emails.insert_one({
+                "email_hash": email_hash, "user_id": uid,
+                "account_id": account_id, "message_id": message_id,
+                "processed_at": datetime.now(timezone.utc).isoformat()
+            })
+    finally:
+        mail.logout()
+
+    await _log_sync(uid, account_id, account["name"], "success", total_imported, total_skipped, None, files_found)
+
+    return {
+        "message": f"Synced {account['name']}: imported {total_imported} transactions, skipped {total_skipped} processed emails.",
+        "total_imported": total_imported,
+        "total_skipped": total_skipped,
+        "files_found": files_found
+    }
+
+async def _log_sync(user_id, account_id, account_name, status, imported, skipped, error=None, files=None):
+    await db.sync_history.insert_one({
+        "user_id": user_id,
+        "account_id": account_id,
+        "account_name": account_name,
+        "status": status,
+        "imported": imported,
+        "skipped": skipped,
+        "error": error,
+        "files": files or [],
+        "synced_at": datetime.now(timezone.utc).isoformat()
+    })
+
+@api_router.get("/accounts/{account_id}/sync-history")
+async def get_sync_history(account_id: str, user: Dict = Depends(get_current_user)):
+    """Get sync history for an account"""
+    uid = user["user_id"]
+    history = await db.sync_history.find(
+        {"user_id": uid, "account_id": account_id}, {"_id": 0}
+    ).sort("synced_at", -1).to_list(20)
+    return history
+
 # Include the router in the main app
 app.include_router(api_router)
 
