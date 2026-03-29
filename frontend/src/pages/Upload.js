@@ -13,6 +13,7 @@ const Upload = () => {
   const [accounts, setAccounts] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState('');
   const [selectedBank, setSelectedBank] = useState('generic');
+  const [pdfPassword, setPdfPassword] = useState('');
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
 
@@ -52,6 +53,9 @@ const Upload = () => {
       // Add bank_name parameter for PDF uploads
       if (endpoint === 'upload-statement') {
         url += `&bank_name=${selectedBank}`;
+        if (pdfPassword) {
+          url += `&password=${encodeURIComponent(pdfPassword)}`;
+        }
       }
       
       const res = await axios.post(url, formData, {
@@ -68,6 +72,7 @@ const Upload = () => {
       
       setFile(null);
       setSelectedBank('generic');
+      setPdfPassword('');
       if (document.getElementById('file-input')) {
         document.getElementById('file-input').value = '';
       }
@@ -124,6 +129,21 @@ const Upload = () => {
               </Select>
               <p className="text-xs mt-1" style={{ color: '#78716C' }}>
                 Select your bank for better parsing accuracy
+              </p>
+            </div>
+            
+            <div>
+              <Label htmlFor="pdf-password">PDF Password (if protected)</Label>
+              <Input
+                id="pdf-password"
+                type="text"
+                data-testid="pdf-password-input"
+                value={pdfPassword}
+                onChange={e => setPdfPassword(e.target.value)}
+                placeholder="e.g., DDMMYYYY or last 4 digits"
+              />
+              <p className="text-xs mt-1" style={{ color: '#78716C' }}>
+                Usually your DOB (DDMMYYYY) or last 4 digits of card number
               </p>
             </div>
             

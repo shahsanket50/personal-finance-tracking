@@ -489,7 +489,8 @@ async def get_analytics_summary(
 async def upload_statement(
     file: UploadFile = File(...), 
     account_id: str = Query(...),
-    bank_name: str = Query(default="generic", description="Bank name for parser selection")
+    bank_name: str = Query(default="generic", description="Bank name for parser selection"),
+    password: str = Query(default="", description="PDF password if protected")
 ):
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
@@ -511,7 +512,7 @@ async def upload_statement(
         logger.info(f"Using parser: {parser.__class__.__name__}")
         
         # Parse transactions
-        parsed_transactions = parser.parse(contents)
+        parsed_transactions = parser.parse(contents, password or None)
         logger.info(f"Parsed {len(parsed_transactions)} transactions")
         
         if not parsed_transactions:
@@ -576,7 +577,8 @@ async def upload_statement(
 @api_router.post("/debug-pdf")
 async def debug_pdf_upload(
     file: UploadFile = File(...),
-    bank_name: str = Query(default="hdfc_diners")
+    bank_name: str = Query(default="hdfc_diners"),
+    password: str = Query(default="", description="PDF password if protected")
 ):
     """Debug endpoint to see extracted text and parsed transactions without importing"""
     if not file.filename.endswith('.pdf'):
@@ -589,10 +591,10 @@ async def debug_pdf_upload(
         parser = get_parser(bank_name, "Debug Account")
         
         # Extract text
-        extracted_text = parser.extract_text(contents)
+        extracted_text = parser.extract_text(contents, password or None)
         
         # Parse transactions
-        parsed_transactions = parser.parse(contents)
+        parsed_transactions = parser.parse(contents, password or None)
         
         return {
             "filename": file.filename,

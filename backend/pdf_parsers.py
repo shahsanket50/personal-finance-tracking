@@ -10,20 +10,36 @@ class BankStatementParser:
     def __init__(self, account_name: str):
         self.account_name = account_name
     
-    def parse(self, pdf_blob: bytes) -> List[Dict]:
+    def parse(self, pdf_blob: bytes, password: str = None) -> List[Dict]:
         """Parse PDF and return list of transactions"""
         raise NotImplementedError("Subclasses must implement parse method")
     
-    def extract_text(self, pdf_blob: bytes) -> str:
+    def extract_text(self, pdf_blob: bytes, password: str = None) -> str:
         """Extract text from PDF using pdfplumber"""
         text_content = ""
         pdf_file = io.BytesIO(pdf_blob)
-        with pdfplumber.open(pdf_file) as pdf:
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text_content += page_text + "\n"
-        return text_content
+        
+        # Try without password first, then with common passwords if provided
+        passwords_to_try = [''] if not password else ['', password]
+        
+        last_error = None
+        for pwd in passwords_to_try:
+            try:
+                with pdfplumber.open(pdf_file, password=pwd) as pdf:
+                    for page in pdf.pages:
+                        page_text = page.extract_text()
+                        if page_text:
+                            text_content += page_text + "\n"
+                return text_content
+            except Exception as e:
+                last_error = e
+                pdf_file.seek(0)  # Reset for next attempt
+                continue
+        
+        # If all attempts failed, raise the last error
+        if 'PDFPasswordIncorrect' in str(last_error.__class__.__name__):
+            raise Exception("PDF is password protected. Please provide the password (usually DOB as DDMMYYYY or last 4 digits of card)")
+        raise last_error
     
     def normalize_date(self, date_str: str, date_format: str) -> str:
         """Convert date string to YYYY-MM-DD format"""
@@ -37,8 +53,8 @@ class BankStatementParser:
 class HDFCDinersParser(BankStatementParser):
     """Parser for HDFC Diners Credit Card statements"""
     
-    def parse(self, pdf_blob: bytes) -> List[Dict]:
-        text = self.extract_text(pdf_blob)
+    def parse(self, pdf_blob: bytes, password: str = None) -> List[Dict]:
+        text = self.extract_text(pdf_blob, password)
         
         if not text or not text.strip():
             print("No text extracted from PDF")
@@ -134,8 +150,8 @@ class HDFCDinersParser(BankStatementParser):
 class HDFCBankParser(BankStatementParser):
     """Parser for HDFC Bank account statements"""
     
-    def parse(self, pdf_blob: bytes) -> List[Dict]:
-        text = self.extract_text(pdf_blob)
+    def parse(self, pdf_blob: bytes, password: str = None) -> List[Dict]:
+        text = self.extract_text(pdf_blob, password)
         transactions = []
         
         # Pattern: DD/MM/YY DESCRIPTION AMOUNT
@@ -171,8 +187,8 @@ class HDFCBankParser(BankStatementParser):
 class SliceBankParser(BankStatementParser):
     """Parser for Slice Bank statements"""
     
-    def parse(self, pdf_blob: bytes) -> List[Dict]:
-        text = self.extract_text(pdf_blob)
+    def parse(self, pdf_blob: bytes, password: str = None) -> List[Dict]:
+        text = self.extract_text(pdf_blob, password)
         transactions = []
         
         # Pattern: DD-MM-YYYY|Description|Category|Amount
@@ -208,8 +224,8 @@ class SliceBankParser(BankStatementParser):
 class KotakBankParser(BankStatementParser):
     """Parser for Kotak Bank statements"""
     
-    def parse(self, pdf_blob: bytes) -> List[Dict]:
-        text = self.extract_text(pdf_blob)
+    def parse(self, pdf_blob: bytes, password: str = None) -> List[Dict]:
+        text = self.extract_text(pdf_blob, password)
         transactions = []
         
         # Pattern: Date: DD Mon YYYY, Narration: XXX, Amount: XXX, Type: DR/CR
@@ -240,8 +256,8 @@ class KotakBankParser(BankStatementParser):
 class SBIBankParser(BankStatementParser):
     """Parser for SBI Bank statements"""
     
-    def parse(self, pdf_blob: bytes) -> List[Dict]:
-        text = self.extract_text(pdf_blob)
+    def parse(self, pdf_blob: bytes, password: str = None) -> List[Dict]:
+        text = self.extract_text(pdf_blob, password)
         transactions = []
         
         # Pattern: DD/MM/YYYY To/By/DESCRIPTION AMOUNT Dr/Cr
@@ -273,8 +289,8 @@ class SBIBankParser(BankStatementParser):
 class GenericParser(BankStatementParser):
     """Generic parser for unknown statement formats"""
     
-    def parse(self, pdf_blob: bytes) -> List[Dict]:
-        text = self.extract_text(pdf_blob)
+    def parse(self, pdf_blob: bytes, password: str = None) -> List[Dict]:
+        text = self.extract_text(pdf_blob, password)
         transactions = []
         
         # Try multiple common date formats and patterns

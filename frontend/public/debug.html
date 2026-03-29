@@ -110,6 +110,14 @@
             </div>
             
             <div class="form-group">
+                <label for="pdfPassword">PDF Password (if protected)</label>
+                <input type="text" id="pdfPassword" placeholder="e.g., DDMMYYYY or last 4 digits of card">
+                <small style="color: #78716C; display: block; margin-top: 4px;">
+                    Usually your DOB (DDMMYYYY) or last 4 digits of card number
+                </small>
+            </div>
+            
+            <div class="form-group">
                 <label for="pdfFile">Select PDF Statement</label>
                 <input type="file" id="pdfFile" accept=".pdf" required>
             </div>
@@ -144,7 +152,13 @@
                 const formData = new FormData();
                 formData.append('file', fileInput.files[0]);
                 
-                const response = await fetch(`${API_URL}/debug-pdf?bank_name=${bankType}`, {
+                const password = document.getElementById('pdfPassword').value;
+                let url = `${API_URL}/debug-pdf?bank_name=${bankType}`;
+                if (password) {
+                    url += `&password=${encodeURIComponent(password)}`;
+                }
+                
+                const response = await fetch(url, {
                     method: 'POST',
                     body: formData
                 });
