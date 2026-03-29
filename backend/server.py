@@ -14,7 +14,7 @@ import pdfplumber
 import io
 import re
 from collections import defaultdict
-from pdf_parsers import get_parser
+from pdf_parsers_simple import get_simple_parser
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -38,12 +38,16 @@ class Account(BaseModel):
     account_type: str  # credit_card, bank, investment, cash
     start_balance: float = 0.0
     current_balance: float = 0.0
+    pdf_password: Optional[str] = None  # Saved PDF password
+    custom_parser: Optional[Dict] = None  # Custom parsing pattern
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class AccountCreate(BaseModel):
     name: str
     account_type: str
     start_balance: float = 0.0
+    pdf_password: Optional[str] = None
+    custom_parser: Optional[Dict] = None
 
 class Category(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -489,7 +493,6 @@ async def get_analytics_summary(
 async def upload_statement(
     file: UploadFile = File(...), 
     account_id: str = Query(...),
-    bank_name: str = Query(default="generic", description="Bank name for parser selection"),
     password: str = Query(default="", description="PDF password if protected")
 ):
     if not file.filename.endswith('.pdf'):
@@ -497,7 +500,7 @@ async def upload_statement(
     
     try:
         contents = await file.read()
-        logger.info(f"Processing PDF: {file.filename}, Size: {len(contents)} bytes, Bank: {bank_name}")
+        logger.info(f"Processing PDF: {file.filename}, Size: {len(contents)} bytes")
         
         # Get account details
         account = await db.accounts.find_one({"id": account_id})
@@ -507,9 +510,14 @@ async def upload_statement(
         account_name = account['name']
         logger.info(f"Account: {account_name}")
         
-        # Get appropriate parser
-        parser = get_parser(bank_name, account_name)
-        logger.info(f"Using parser: {parser.__class__.__name__}")
+        # Use saved password if not provided
+        if not password and account.get('pdf_password'):
+            password = account['pdf_password']
+        
+        # Get parser with custom pattern if available
+        custom_pattern = account.get('custom_parser')
+        parser = get_simple_parser(account_name, custom_pattern)
+        logger.info(f"Using parser with custom pattern: {bool(custom_pattern)}")
         
         # Parse transactions
         parsed_transactions = parser.parse(contents, password or None)
@@ -573,11 +581,88 @@ async def upload_statement(
         logger.error(f"Error processing PDF: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
 
+# Parser Builder endpoints
+@api_router.post("/build-parser")
+async def build_parser(
+    file: UploadFile = File(...),
+    account_id: str = Query(...),
+    password: str = Query(default="")
+):
+    """Extract text from PDF for parser building"""
+    if not file.filename.endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+    
+    try:
+        contents = await file.read()
+        account = await db.accounts.find_one({"id": account_id})
+        if not account:
+            raise HTTPException(status_code=404, detail="Account not found")
+        
+        parser = get_simple_parser(account['name'])
+        text = parser.extract_text(contents, password or None)
+        
+        # Try to parse with generic patterns
+        transactions = parser.parse_generic(text)
+        
+        return {
+            "text": text,
+            "text_length": len(text),
+            "lines": text.split('\n')[:100],  # First 100 lines
+            "transactions_found": len(transactions),
+            "sample_transactions": transactions[:10] if transactions else []
+        }
+    except Exception as e:
+        logger.error(f"Error in parser builder: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/save-parser-pattern")
+async def save_parser_pattern(
+    account_id: str,
+    pattern: Dict
+):
+    """Save custom parser pattern for an account"""
+    result = await db.accounts.update_one(
+        {"id": account_id},
+        {"$set": {"custom_parser": pattern}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Account not found")
+    
+    return {"message": "Parser pattern saved successfully"}
+
+@api_router.post("/test-parser-pattern")
+async def test_parser_pattern(
+    file: UploadFile = File(...),
+    account_id: str = Query(...),
+    pattern: str = Query(...),
+    password: str = Query(default="")
+):
+    """Test a custom regex pattern"""
+    try:
+        contents = await file.read()
+        account = await db.accounts.find_one({"id": account_id})
+        if not account:
+            raise HTTPException(status_code=404, detail="Account not found")
+        
+        # Create temporary parser with test pattern
+        import json
+        test_pattern = json.loads(pattern)
+        parser = get_simple_parser(account['name'], test_pattern)
+        
+        transactions = parser.parse(contents, password or None)
+        
+        return {
+            "transactions_found": len(transactions),
+            "transactions": transactions[:20]
+        }
+    except Exception as e:
+        return {"error": str(e), "transactions_found": 0}
+
 # Debug endpoint for PDF text extraction
 @api_router.post("/debug-pdf")
 async def debug_pdf_upload(
     file: UploadFile = File(...),
-    bank_name: str = Query(default="hdfc_diners"),
     password: str = Query(default="", description="PDF password if protected")
 ):
     """Debug endpoint to see extracted text and parsed transactions without importing"""
@@ -588,7 +673,7 @@ async def debug_pdf_upload(
         contents = await file.read()
         
         # Get parser
-        parser = get_parser(bank_name, "Debug Account")
+        parser = get_simple_parser("Debug Account")
         
         # Extract text
         extracted_text = parser.extract_text(contents, password or None)

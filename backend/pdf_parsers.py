@@ -60,92 +60,68 @@ class HDFCDinersParser(BankStatementParser):
             print("No text extracted from PDF")
             return []
         
-        # Split into lines
-        lines = text.split('\n')
-        print(f"Total lines extracted: {len(lines)}")
-        
-        # Find section between 'Domestic Transactions' and 'Reward Points Summary'
-        start_idx = -1
-        end_idx = len(lines)
-        
-        for i, line in enumerate(lines):
-            if start_idx == -1 and 'Domestic Transactions' in line:
-                start_idx = i + 1
-            if start_idx != -1 and 'Reward Points Summary' in line:
-                end_idx = i
-                break
-        
-        if start_idx == -1 or start_idx >= end_idx:
-            print("Could not find Domestic Transactions block")
-            return []
-        
-        txn_lines = lines[start_idx:end_idx]
-        print(f"Processing {len(txn_lines)} lines")
-        
-        # Regex patterns
-        date_regex = re.compile(r'^(\d{2}/\d{2}/\d{4}(?:\s+\d{2}:\d{2}:\d{2})?)')
-        amount_regex = re.compile(r'(\d{1,3}(?:,\d{3})*\.\d{2})(\s*Cr)?$')
-        
-        current_transaction = None
         transactions = []
         
-        for line in txn_lines:
-            line = line.strip()
-            if not line:
+        # New pattern for HDFC Diners format:
+        # 24/02/2026| 08:28 URBANCLAPNOIDA + 5 C 244.00 l
+        # Pattern breakdown:
+        # - Date: DD/MM/YYYY
+        # - Pipe separator: |
+        # - Time (optional): HH:MM
+        # - Description: merchant name
+        # - Indicators: + or - symbols, numbers
+        # - C: charge indicator
+        # - Amount: with or without comma
+        # - End marker: l or other
+        
+        # Match lines with date| format
+        pattern = re.compile(
+            r'(\d{2}/\d{2}/\d{4})\|'  # Date with pipe
+            r'\s*(?:\d{2}:\d{2}\s+)?'  # Optional time
+            r'(.+?)'  # Description
+            r'\s+C\s+'  # C indicator (charge)
+            r'([\d,]+\.?\d*)'  # Amount with optional decimals
+            r'\s*l?'  # Optional l at end
+        )
+        
+        for match in pattern.finditer(text):
+            date_str = match.group(1)
+            description = match.group(2).strip()
+            amount_str = match.group(3).replace(',', '')
+            
+            # Normalize date
+            normalized_date = self.normalize_date(date_str, '%d/%m/%Y')
+            
+            # Parse amount
+            try:
+                amount = float(amount_str)
+            except:
                 continue
             
-            # Check if line starts with a date
-            date_match = date_regex.match(line)
-            if date_match:
-                # Save previous transaction
-                if current_transaction:
-                    transactions.append(current_transaction)
-                
-                # Extract date (only DD/MM/YYYY part)
-                date_str = date_match.group(1).split(' ')[0]
-                normalized_date = self.normalize_date(date_str, '%d/%m/%Y')
-                
-                # Get rest of line as initial description
-                rest_of_line = date_regex.sub('', line).strip()
-                
-                current_transaction = {
-                    'date': normalized_date,
-                    'description': rest_of_line,
-                    'amount': None,
-                    'type': None,
-                    'account': self.account_name
-                }
-            elif current_transaction:
-                # Append to description
-                if current_transaction['description']:
-                    current_transaction['description'] += ' ' + line
-                else:
-                    current_transaction['description'] = line
+            # Determine if it's a credit (payment/refund) or debit (charge)
+            # In HDFC Diners, most transactions are debits (charges)
+            # Credits are usually marked as "PAYMENT" or have specific indicators
+            is_credit = any(keyword in description.upper() for keyword in [
+                'PAYMENT', 'CREDIT', 'REFUND', 'REVERSAL', 'CASHBACK'
+            ])
             
-            # Check for amount in line
-            amount_match = amount_regex.search(line)
-            if amount_match and current_transaction:
-                amount_str = amount_match.group(1).replace(',', '')
-                is_credit = bool(amount_match.group(2))
-                
-                current_transaction['amount'] = float(amount_str)
-                current_transaction['type'] = 'credit' if is_credit else 'debit'
-                
-                # Remove amount from description
-                current_transaction['description'] = amount_regex.sub('', current_transaction['description']).strip()
+            transaction_type = 'credit' if is_credit else 'debit'
+            
+            # Clean up description - remove extra symbols and numbers at end
+            # Remove patterns like "+ 5", "- 40 +", etc.
+            description = re.sub(r'\s+[+-]\s*\d+\s*[+-]?\s*$', '', description)
+            description = description.strip()
+            
+            transactions.append({
+                'date': normalized_date,
+                'description': description,
+                'amount': amount,
+                'type': transaction_type,
+                'account': self.account_name
+            })
         
-        # Don't forget last transaction
-        if current_transaction:
-            transactions.append(current_transaction)
-        
-        # Filter out incomplete transactions
-        valid_transactions = [
-            txn for txn in transactions 
-            if txn['date'] and txn['amount'] is not None and txn['description']
-        ]
-        
-        print(f"Total valid transactions parsed: {len(valid_transactions)}")
-        return valid_transactions
+        print(f"HDFC Diners: Parsed {len(transactions)} transactions")
+        return transactions
 
 class HDFCBankParser(BankStatementParser):
     """Parser for HDFC Bank account statements"""
