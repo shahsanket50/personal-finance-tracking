@@ -617,16 +617,25 @@ async def build_parser(
 
 @api_router.post("/save-parser-pattern")
 async def save_parser_pattern(
-    account_id: str,
-    pattern: Dict
+    account_id: str = Query(...),
+    password: str = Query(default="")
 ):
-    """Save custom parser pattern for an account"""
+    """Save custom parser pattern for an account (auto-detection with password)"""
+    update_data = {}
+    
+    # For auto-detection, we set custom_parser to None (meaning use generic parser)
+    update_data["custom_parser"] = None
+    
+    # Save password if provided
+    if password:
+        update_data["pdf_password"] = password
+    
     result = await db.accounts.update_one(
         {"id": account_id},
-        {"$set": {"custom_parser": pattern}}
+        {"$set": update_data}
     )
     
-    if result.modified_count == 0:
+    if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Account not found")
     
     return {"message": "Parser pattern saved successfully"}

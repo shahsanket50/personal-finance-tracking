@@ -56,24 +56,14 @@ const ParserBuilder = ({ account, open, onClose, onSave }) => {
 
   const handleSaveAutoPattern = async () => {
     try {
-      // Save the generic pattern (null means use auto-detection)
-      await axios.post(`${API}/save-parser-pattern`, null, {
-        params: { account_id: account.id }
-      });
+      // Save the pattern and password in one call
+      await axios.post(`${API}/save-parser-pattern?account_id=${account.id}&password=${encodeURIComponent(password)}`);
       
-      // Save password if provided
-      if (password) {
-        await axios.put(`${API}/accounts/${account.id}`, {
-          ...account,
-          pdf_password: password
-        });
-      }
-      
-      toast.success('Auto-detection pattern saved!');
+      toast.success('Parser configured! Future uploads will use this setting.');
       onSave();
       onClose();
     } catch (err) {
-      toast.error('Failed to save pattern');
+      toast.error(err.response?.data?.detail || 'Failed to save pattern');
       console.error(err);
     }
   };
