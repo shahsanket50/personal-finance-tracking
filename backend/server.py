@@ -534,7 +534,7 @@ async def upload_statement(
             return {
                 "message": "No transactions found in PDF",
                 "imported_count": 0,
-                "note": f"Unable to parse transactions with {bank_name} parser. Try a different bank type or use CSV import. Check backend logs for details."
+                "note": f"Unable to parse transactions for {account_name}. Try configuring a parser via Parser Builder, or use CSV import. Check backend logs for details."
             }
         
         # Import parsed transactions
@@ -588,28 +588,30 @@ async def build_parser(
     account_id: str = Query(...),
     password: str = Query(default="")
 ):
-    """Extract text from PDF for parser building"""
+    """Extract text from PDF and auto-detect the best parsing strategy"""
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
-    
+
     try:
         contents = await file.read()
         account = await db.accounts.find_one({"id": account_id})
         if not account:
             raise HTTPException(status_code=404, detail="Account not found")
-        
+
         parser = get_simple_parser(account['name'])
         text = parser.extract_text(contents, password or None)
-        
-        # Try to parse with generic patterns
-        transactions = parser.parse_generic(text)
-        
+
+        # Auto-detect best strategy
+        detection = parser.detect_best_strategy(contents, password or None)
+
         return {
             "text": text,
             "text_length": len(text),
-            "lines": text.split('\n')[:100],  # First 100 lines
-            "transactions_found": len(transactions),
-            "sample_transactions": transactions[:10] if transactions else []
+            "lines": text.split('\n')[:100],
+            "transactions_found": len(detection['transactions']),
+            "sample_transactions": detection['transactions'][:20],
+            "detected_strategy": detection['strategy'],
+            "all_strategies": detection['all_results']
         }
     except Exception as e:
         logger.error(f"Error in parser builder: {str(e)}")
@@ -618,27 +620,29 @@ async def build_parser(
 @api_router.post("/save-parser-pattern")
 async def save_parser_pattern(
     account_id: str = Query(...),
-    password: str = Query(default="")
+    password: str = Query(default=""),
+    strategy: str = Query(default="")
 ):
-    """Save custom parser pattern for an account (auto-detection with password)"""
+    """Save the detected parser strategy and password for an account"""
     update_data = {}
-    
-    # For auto-detection, we set custom_parser to None (meaning use generic parser)
-    update_data["custom_parser"] = None
-    
-    # Save password if provided
+
+    if strategy:
+        update_data["custom_parser"] = {"strategy": strategy}
+    else:
+        update_data["custom_parser"] = None
+
     if password:
         update_data["pdf_password"] = password
-    
+
     result = await db.accounts.update_one(
         {"id": account_id},
         {"$set": update_data}
     )
-    
+
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Account not found")
-    
-    return {"message": "Parser pattern saved successfully"}
+
+    return {"message": "Parser pattern saved successfully", "strategy": strategy}
 
 @api_router.post("/test-parser-pattern")
 async def test_parser_pattern(

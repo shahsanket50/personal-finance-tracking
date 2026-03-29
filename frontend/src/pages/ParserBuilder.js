@@ -17,6 +17,8 @@ const ParserBuilder = ({ account, open, onClose, onSave }) => {
   const [password, setPassword] = useState('');
   const [extractedText, setExtractedText] = useState('');
   const [autoTransactions, setAutoTransactions] = useState([]);
+  const [detectedStrategy, setDetectedStrategy] = useState('');
+  const [allStrategies, setAllStrategies] = useState({});
   const [loading, setLoading] = useState(false);
 
   const handleFileUpload = async () => {
@@ -38,6 +40,8 @@ const ParserBuilder = ({ account, open, onClose, onSave }) => {
 
       setExtractedText(res.data.text);
       setAutoTransactions(res.data.sample_transactions);
+      setDetectedStrategy(res.data.detected_strategy || '');
+      setAllStrategies(res.data.all_strategies || {});
       
       if (res.data.transactions_found > 0) {
         toast.success(`Auto-detected ${res.data.transactions_found} transactions!`);
@@ -56,8 +60,8 @@ const ParserBuilder = ({ account, open, onClose, onSave }) => {
 
   const handleSaveAutoPattern = async () => {
     try {
-      // Save the pattern and password in one call
-      await axios.post(`${API}/save-parser-pattern?account_id=${account.id}&password=${encodeURIComponent(password)}`);
+      // Save the pattern, strategy and password
+      await axios.post(`${API}/save-parser-pattern?account_id=${account.id}&password=${encodeURIComponent(password)}&strategy=${encodeURIComponent(detectedStrategy)}`);
       
       toast.success('Parser configured! Future uploads will use this setting.');
       onSave();
@@ -74,6 +78,8 @@ const ParserBuilder = ({ account, open, onClose, onSave }) => {
     setPassword('');
     setExtractedText('');
     setAutoTransactions([]);
+    setDetectedStrategy('');
+    setAllStrategies({});
   };
 
   return (
@@ -178,8 +184,14 @@ const ParserBuilder = ({ account, open, onClose, onSave }) => {
                     <div className="bg-[#E7F3F0] border border-[#5C745A] rounded-lg p-4">
                       <p className="text-sm flex items-center gap-2" style={{ color: '#2D4A39' }}>
                         <Check size={18} />
-                        <strong>Success!</strong> Auto-detected {autoTransactions.length} transactions. Review below and save if they look correct.
+                        <strong>Success!</strong> Auto-detected {autoTransactions.length} transactions
+                        {detectedStrategy && <span className="text-xs opacity-75">(strategy: {detectedStrategy.replace('_', ' ')})</span>}
                       </p>
+                      {Object.keys(allStrategies).length > 1 && (
+                        <p className="text-xs mt-1 opacity-60">
+                          Other strategies tried: {Object.entries(allStrategies).map(([k, v]) => `${k.replace('_', ' ')}: ${v}`).join(', ')}
+                        </p>
+                      )}
                     </div>
 
                     <div className="space-y-2 max-h-96 overflow-y-auto">
