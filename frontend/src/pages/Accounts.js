@@ -100,7 +100,11 @@ const Accounts = () => {
     setSyncingId(account.id);
     try {
       const res = await axios.post(`${API}/accounts/${account.id}/sync`);
-      toast.success(res.data.message);
+      if (res.data.emails_matched === 0) {
+        toast.warning(res.data.message);
+      } else {
+        toast.success(res.data.message);
+      }
       loadAccounts();
     } catch (err) {
       const detail = err.response?.data?.detail || 'Sync failed';
@@ -344,19 +348,34 @@ const Accounts = () => {
               syncHistory.map((log, i) => (
                 <div key={i} data-testid={`sync-log-${i}`} className="rounded-lg p-3 border text-sm" style={{ background: 'var(--app-card-bg)', borderColor: 'var(--app-card-border)' }}>
                   <div className="flex justify-between items-center mb-1.5">
-                    <span className={`text-xs font-semibold uppercase tracking-wide ${log.status === 'success' ? 'text-green-600' : 'text-red-500'}`}>
-                      {log.status}
+                    <span className={`text-xs font-semibold uppercase tracking-wide ${
+                      log.status === 'success' ? 'text-green-600' : log.status === 'no_match' ? 'text-yellow-600' : 'text-red-500'
+                    }`}>
+                      {log.status === 'no_match' ? 'NO MATCH' : log.status?.toUpperCase()}
                     </span>
                     <span className="text-xs" style={{ color: 'var(--app-text-muted)' }}>
                       {new Date(log.synced_at).toLocaleString()}
                     </span>
                   </div>
-                  <div className="flex gap-4 text-xs" style={{ color: 'var(--app-text-secondary)' }}>
+                  <div className="flex gap-4 text-xs flex-wrap" style={{ color: 'var(--app-text-secondary)' }}>
                     <span>Imported: <strong style={{ color: 'var(--app-text)' }}>{log.imported}</strong></span>
                     <span>Skipped: <strong style={{ color: 'var(--app-text)' }}>{log.skipped}</strong></span>
+                    {log.emails_matched !== undefined && (
+                      <span>Emails matched: <strong style={{ color: 'var(--app-text)' }}>{log.emails_matched}</strong></span>
+                    )}
                   </div>
+                  {log.filter_used && (
+                    <p className="mt-1 text-xs" style={{ color: 'var(--app-text-muted)' }}>
+                      Filter: "{log.filter_used}"
+                    </p>
+                  )}
                   {log.error && (
                     <p className="mt-1 text-xs text-red-500">{log.error}</p>
+                  )}
+                  {log.status === 'no_match' && (
+                    <p className="mt-1 text-xs text-yellow-600">
+                      Tip: Edit the account's email filter keyword to match your bank statement email subjects.
+                    </p>
                   )}
                   {log.files?.length > 0 && (
                     <div className="mt-2 space-y-1">

@@ -1225,13 +1225,21 @@ async def sync_account_email(account_id: str, user: Dict = Depends(get_current_u
         mail.login(email_config["email_address"], email_config["app_password"])
         mail.select("INBOX")
     except Exception as e:
-        # Log sync attempt
-        await _log_sync(uid, account_id, account["name"], "failed", 0, 0, str(e))
-        raise HTTPException(status_code=400, detail=f"Email connection failed: {str(e)}")
+        error_msg = str(e)
+        # Clean up raw bytes error messages from IMAP
+        if error_msg.startswith("b'") or error_msg.startswith('b"'):
+            error_msg = error_msg[2:-1]
+        if "Application-specific password" in error_msg or "app password" in error_msg.lower():
+            error_msg = "Gmail requires an App Password for IMAP access. Generate one at myaccount.google.com/apppasswords (2FA must be enabled)."
+        elif "authentication failed" in error_msg.lower() or "invalid credentials" in error_msg.lower():
+            error_msg = "Login failed. Check your email address and App Password in Settings."
+        await _log_sync(uid, account_id, account["name"], "failed", 0, 0, error_msg)
+        raise HTTPException(status_code=400, detail=f"Email connection failed: {error_msg}")
 
     total_imported = 0
     total_skipped = 0
     files_found = []
+    emails_matched = 0
 
     try:
         filter_text = account["email_filter"]
@@ -1239,7 +1247,8 @@ async def sync_account_email(account_id: str, user: Dict = Depends(get_current_u
         if not msg_nums[0]:
             _, msg_nums = mail.search(None, f'(BODY "{filter_text}")')
 
-        message_ids = msg_nums[0].split()[-15:]
+        message_ids = msg_nums[0].split()[-15:] if msg_nums[0] else []
+        emails_matched = len(message_ids)
 
         for msg_num in message_ids:
             _, msg_data = mail.fetch(msg_num, "(RFC822)")
@@ -1306,16 +1315,33 @@ async def sync_account_email(account_id: str, user: Dict = Depends(get_current_u
     finally:
         mail.logout()
 
-    await _log_sync(uid, account_id, account["name"], "success", total_imported, total_skipped, None, files_found)
+    # Build informative message
+    filter_text = account["email_filter"]
+    if emails_matched == 0:
+        msg = f"No emails found matching filter \"{filter_text}\". Try adjusting the email filter keyword on this account."
+        status = "no_match"
+    elif total_imported == 0 and total_skipped > 0:
+        msg = f"Found {emails_matched} emails matching \"{filter_text}\" but all were already processed. Skipped {total_skipped}."
+        status = "success"
+    elif total_imported == 0:
+        msg = f"Found {emails_matched} emails matching \"{filter_text}\" but no PDF attachments with parseable transactions."
+        status = "success"
+    else:
+        msg = f"Synced {account['name']}: imported {total_imported} transactions from {len(files_found)} PDFs. ({emails_matched} emails matched \"{filter_text}\")"
+        status = "success"
+
+    await _log_sync(uid, account_id, account["name"], status, total_imported, total_skipped, None, files_found, filter_text, emails_matched)
 
     return {
-        "message": f"Synced {account['name']}: imported {total_imported} transactions, skipped {total_skipped} processed emails.",
+        "message": msg,
         "total_imported": total_imported,
         "total_skipped": total_skipped,
+        "emails_matched": emails_matched,
+        "filter_used": filter_text,
         "files_found": files_found
     }
 
-async def _log_sync(user_id, account_id, account_name, status, imported, skipped, error=None, files=None):
+async def _log_sync(user_id, account_id, account_name, status, imported, skipped, error=None, files=None, filter_used=None, emails_matched=0):
     await db.sync_history.insert_one({
         "user_id": user_id,
         "account_id": account_id,
@@ -1325,6 +1351,8 @@ async def _log_sync(user_id, account_id, account_name, status, imported, skipped
         "skipped": skipped,
         "error": error,
         "files": files or [],
+        "filter_used": filter_used,
+        "emails_matched": emails_matched,
         "synced_at": datetime.now(timezone.utc).isoformat()
     })
 
