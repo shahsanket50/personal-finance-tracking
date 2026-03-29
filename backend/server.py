@@ -922,22 +922,25 @@ Transactions:
 {[{"id": d["id"], "description": d["desc"], "amount": d["amount"], "type": d["type"]} for d in descriptions]}"""
 
     try:
-        from emergentintegrations.llm.gemini import GeminiConfig, gemini_text_generation
-        config = GeminiConfig(
-            emergent_api_key=os.environ.get("EMERGENT_LLM_KEY", ""),
-            model="gemini-2.5-flash",
-            system_prompt="You are a financial transaction categorizer. Return only valid JSON."
-        )
-        response = await gemini_text_generation(config=config, prompt=prompt)
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        import json as json_mod
 
-        import json
+        chat = LlmChat(
+            api_key=os.environ.get("EMERGENT_LLM_KEY", ""),
+            session_id=f"categorize_{uid}_{uuid.uuid4().hex[:8]}",
+            system_message="You are a financial transaction categorizer. Return only valid JSON."
+        )
+        chat.with_model("gemini", "gemini-2.5-flash")
+
+        response = await chat.send_message(UserMessage(text=prompt))
+
         json_text = response.strip()
         if "```json" in json_text:
             json_text = json_text.split("```json")[1].split("```")[0].strip()
         elif "```" in json_text:
             json_text = json_text.split("```")[1].split("```")[0].strip()
 
-        categorizations = json.loads(json_text)
+        categorizations = json_mod.loads(json_text)
 
         categorized_count = 0
         for item in categorizations:
