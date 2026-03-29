@@ -973,6 +973,199 @@ async def export_backup(user: Dict = Depends(get_current_user)):
         "categories": categories
     }
 
+# ─── Backup Import/Restore ──────────────────────────────────────────
+@api_router.post("/backup/import")
+async def import_backup(request: Request, user: Dict = Depends(get_current_user)):
+    """Restore user data from a JSON backup"""
+    uid = user["user_id"]
+    body = await request.json()
+
+    imported = {"accounts": 0, "transactions": 0, "categories": 0}
+
+    for acc in body.get("accounts", []):
+        existing = await db.accounts.find_one({"id": acc["id"], "user_id": uid})
+        if not existing:
+            acc["user_id"] = uid
+            await db.accounts.insert_one(acc)
+            imported["accounts"] += 1
+
+    for cat in body.get("categories", []):
+        existing = await db.categories.find_one({"id": cat["id"], "user_id": uid})
+        if not existing:
+            cat["user_id"] = uid
+            await db.categories.insert_one(cat)
+            imported["categories"] += 1
+
+    for txn in body.get("transactions", []):
+        existing = await db.transactions.find_one({"id": txn["id"], "user_id": uid})
+        if not existing:
+            txn["user_id"] = uid
+            await db.transactions.insert_one(txn)
+            imported["transactions"] += 1
+
+    return {"message": "Backup restored", "imported": imported}
+
+# ─── Email Config & Scanner ──────────────────────────────────────────
+class EmailConfigModel(BaseModel):
+    imap_server: str = "imap.gmail.com"
+    email_address: str
+    app_password: str
+
+@api_router.post("/email-config")
+async def save_email_config(config: EmailConfigModel, user: Dict = Depends(get_current_user)):
+    """Save IMAP email configuration for auto-scanning"""
+    uid = user["user_id"]
+    doc = {
+        "user_id": uid,
+        "imap_server": config.imap_server,
+        "email_address": config.email_address,
+        "app_password": config.app_password,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.email_configs.update_one(
+        {"user_id": uid},
+        {"$set": doc},
+        upsert=True
+    )
+    return {"message": "Email configuration saved"}
+
+@api_router.get("/email-config")
+async def get_email_config(user: Dict = Depends(get_current_user)):
+    """Get saved email configuration"""
+    config = await db.email_configs.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    if not config:
+        return {"configured": False}
+    return {
+        "configured": True,
+        "imap_server": config["imap_server"],
+        "email_address": config["email_address"],
+        "has_password": bool(config.get("app_password"))
+    }
+
+@api_router.post("/email-scan")
+async def scan_email_for_statements(user: Dict = Depends(get_current_user)):
+    """Scan email inbox for bank statement PDFs and auto-import"""
+    import imaplib
+    import email as email_lib
+    from email.header import decode_header
+    import hashlib
+
+    uid = user["user_id"]
+
+    email_config = await db.email_configs.find_one({"user_id": uid}, {"_id": 0})
+    if not email_config or not email_config.get("app_password"):
+        raise HTTPException(status_code=400, detail="Email not configured. Go to Settings to set up email scanning.")
+
+    accounts = await db.accounts.find({"user_id": uid}, {"_id": 0}).to_list(100)
+    accounts_with_filters = [a for a in accounts if a.get("email_filter")]
+    if not accounts_with_filters:
+        raise HTTPException(status_code=400, detail="No accounts have email filters configured. Edit an account and add an email filter keyword.")
+
+    try:
+        mail = imaplib.IMAP4_SSL(email_config["imap_server"])
+        mail.login(email_config["email_address"], email_config["app_password"])
+        mail.select("INBOX")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Email connection failed: {str(e)}")
+
+    total_imported = 0
+    total_skipped = 0
+    results = []
+
+    try:
+        for account in accounts_with_filters:
+            filter_text = account["email_filter"]
+            account_id = account["id"]
+            account_name = account["name"]
+
+            _, msg_nums = mail.search(None, f'(SUBJECT "{filter_text}")')
+            if not msg_nums[0]:
+                _, msg_nums = mail.search(None, f'(BODY "{filter_text}")')
+
+            message_ids = msg_nums[0].split()[-10:]  # Last 10 matching emails
+
+            for msg_num in message_ids:
+                _, msg_data = mail.fetch(msg_num, "(RFC822)")
+                email_message = email_lib.message_from_bytes(msg_data[0][1])
+
+                message_id = email_message.get("Message-ID", "")
+                email_hash = hashlib.md5(f"{message_id}_{account_id}".encode()).hexdigest()
+
+                already_processed = await db.processed_emails.find_one({
+                    "email_hash": email_hash, "user_id": uid
+                })
+                if already_processed:
+                    total_skipped += 1
+                    continue
+
+                for part in email_message.walk():
+                    if part.get_content_type() == "application/pdf":
+                        filename = part.get_filename() or "statement.pdf"
+                        pdf_data = part.get_payload(decode=True)
+
+                        if not pdf_data:
+                            continue
+
+                        password = account.get("pdf_password", "")
+                        custom_pattern = account.get("custom_parser")
+                        parser = get_simple_parser(account_name, custom_pattern)
+
+                        try:
+                            parsed_txns = parser.parse(pdf_data, password or None)
+                        except Exception:
+                            parsed_txns = []
+
+                        imported_count = 0
+                        for txn_data in parsed_txns:
+                            existing = await db.transactions.find_one({
+                                "account_id": account_id, "user_id": uid,
+                                "date": txn_data["date"],
+                                "description": txn_data["description"],
+                                "amount": txn_data["amount"]
+                            })
+                            if existing:
+                                continue
+
+                            txn = Transaction(
+                                user_id=uid,
+                                account_id=account_id,
+                                date=txn_data["date"],
+                                description=txn_data["description"],
+                                amount=txn_data["amount"],
+                                transaction_type=txn_data["type"]
+                            )
+                            doc = txn.model_dump()
+                            doc["created_at"] = doc["created_at"].isoformat()
+                            await db.transactions.insert_one(doc)
+                            imported_count += 1
+
+                        if imported_count > 0:
+                            total_imported += imported_count
+
+                        results.append({
+                            "account": account_name,
+                            "file": filename,
+                            "found": len(parsed_txns),
+                            "imported": imported_count
+                        })
+
+                await db.processed_emails.insert_one({
+                    "email_hash": email_hash,
+                    "user_id": uid,
+                    "account_id": account_id,
+                    "message_id": message_id,
+                    "processed_at": datetime.now(timezone.utc).isoformat()
+                })
+    finally:
+        mail.logout()
+
+    return {
+        "message": f"Scan complete. Imported {total_imported} transactions, skipped {total_skipped} already-processed emails.",
+        "total_imported": total_imported,
+        "total_skipped": total_skipped,
+        "details": results
+    }
+
 # Include the router in the main app
 app.include_router(api_router)
 

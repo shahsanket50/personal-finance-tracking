@@ -21,7 +21,8 @@ const Accounts = () => {
   const [formData, setFormData] = useState({
     name: '',
     account_type: 'bank',
-    start_balance: 0
+    start_balance: 0,
+    email_filter: ''
   });
 
   useEffect(() => {
@@ -50,7 +51,7 @@ const Accounts = () => {
       }
       setOpen(false);
       setEditingAccount(null);
-      setFormData({ name: '', account_type: 'bank', start_balance: 0 });
+      setFormData({ name: '', account_type: 'bank', start_balance: 0, email_filter: '' });
       loadAccounts();
     } catch (err) {
       toast.error('Failed to save account');
@@ -75,7 +76,8 @@ const Accounts = () => {
     setFormData({
       name: account.name,
       account_type: account.account_type,
-      start_balance: account.start_balance
+      start_balance: account.start_balance,
+      email_filter: account.email_filter || ''
     });
     setOpen(true);
   };
@@ -106,7 +108,7 @@ const Accounts = () => {
               className="bg-[#5C745A] text-white hover:bg-[#475F45] focus:ring-2 focus:ring-[#5C745A]/50 rounded-lg"
               onClick={() => {
                 setEditingAccount(null);
-                setFormData({ name: '', account_type: 'bank', start_balance: 0 });
+                setFormData({ name: '', account_type: 'bank', start_balance: 0, email_filter: '' });
               }}
             >
               <Plus size={18} className="mr-2" />
@@ -157,6 +159,17 @@ const Accounts = () => {
                   onChange={e => setFormData({...formData, start_balance: parseFloat(e.target.value) || 0})}
                   required
                 />
+              </div>
+              <div>
+                <Label htmlFor="email_filter">Email Filter (for auto-scan)</Label>
+                <Input
+                  id="email_filter"
+                  data-testid="account-email-filter-input"
+                  value={formData.email_filter}
+                  onChange={e => setFormData({...formData, email_filter: e.target.value})}
+                  placeholder="e.g., HDFC Bank Statement"
+                />
+                <p className="text-xs mt-1" style={{ color: '#A8A29E' }}>Keyword to match in email subject for auto-importing statements</p>
               </div>
               <Button 
                 type="submit" 
@@ -227,6 +240,11 @@ const Accounts = () => {
                 <div className="mt-3 px-2 py-1 bg-[#E7F3F0] border border-[#5C745A] rounded text-xs flex items-center gap-1" style={{ color: '#2D4A39' }}>
                   <Sparkle size={14} weight="fill" />
                   Custom parser configured
+                </div>
+              )}
+              {account.email_filter && (
+                <div className="mt-2 px-2 py-1 bg-blue-50 border border-blue-200 rounded text-xs" style={{ color: '#1e40af' }}>
+                  Email filter: {account.email_filter}
                 </div>
               )}
             </div>
