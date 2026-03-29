@@ -1098,7 +1098,13 @@ async def scan_email_for_statements(user: Dict = Depends(get_current_user)):
     try:
         mail = imaplib.IMAP4_SSL(email_config["imap_server"])
         mail.login(email_config["email_address"], email_config["app_password"])
-        mail.select("INBOX")
+        # Try [Gmail]/All Mail first (searches all labels/folders), fallback to INBOX
+        try:
+            status, _ = mail.select('"[Gmail]/All Mail"')
+            if status != 'OK':
+                mail.select("INBOX")
+        except Exception:
+            mail.select("INBOX")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Email connection failed: {str(e)}")
 
@@ -1115,8 +1121,13 @@ async def scan_email_for_statements(user: Dict = Depends(get_current_user)):
             _, msg_nums = mail.search(None, f'(SUBJECT "{filter_text}")')
             if not msg_nums[0]:
                 _, msg_nums = mail.search(None, f'(BODY "{filter_text}")')
+            if not msg_nums[0] and len(filter_text.split()) > 2:
+                words = [w for w in filter_text.split() if len(w) > 3][:4]
+                if words:
+                    criteria = ' '.join(f'SUBJECT "{w}"' for w in words)
+                    _, msg_nums = mail.search(None, f'({criteria})')
 
-            message_ids = msg_nums[0].split()[-10:]  # Last 10 matching emails
+            message_ids = msg_nums[0].split()[-10:] if msg_nums[0] else []
 
             for msg_num in message_ids:
                 _, msg_data = mail.fetch(msg_num, "(RFC822)")
@@ -1223,7 +1234,13 @@ async def sync_account_email(account_id: str, user: Dict = Depends(get_current_u
     try:
         mail = imaplib.IMAP4_SSL(email_config["imap_server"])
         mail.login(email_config["email_address"], email_config["app_password"])
-        mail.select("INBOX")
+        # Try [Gmail]/All Mail first (searches all labels/folders), fallback to INBOX
+        try:
+            status, _ = mail.select('"[Gmail]/All Mail"')
+            if status != 'OK':
+                mail.select("INBOX")
+        except Exception:
+            mail.select("INBOX")
     except Exception as e:
         error_msg = str(e)
         # Clean up raw bytes error messages from IMAP
@@ -1243,9 +1260,17 @@ async def sync_account_email(account_id: str, user: Dict = Depends(get_current_u
 
     try:
         filter_text = account["email_filter"]
+        # Strategy 1: Exact subject match
         _, msg_nums = mail.search(None, f'(SUBJECT "{filter_text}")')
+        # Strategy 2: Body search fallback
         if not msg_nums[0]:
             _, msg_nums = mail.search(None, f'(BODY "{filter_text}")')
+        # Strategy 3: Search with individual key words if filter has multiple words
+        if not msg_nums[0] and len(filter_text.split()) > 2:
+            words = [w for w in filter_text.split() if len(w) > 3][:4]
+            if words:
+                criteria = ' '.join(f'SUBJECT "{w}"' for w in words)
+                _, msg_nums = mail.search(None, f'({criteria})')
 
         message_ids = msg_nums[0].split()[-15:] if msg_nums[0] else []
         emails_matched = len(message_ids)
