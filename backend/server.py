@@ -14,6 +14,7 @@ import pdfplumber
 import io
 import re
 from collections import defaultdict
+from pdf_parsers import get_parser
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -485,28 +486,79 @@ async def get_analytics_summary(
 
 # PDF Upload endpoint
 @api_router.post("/upload-statement")
-async def upload_statement(file: UploadFile = File(...), account_id: str = Query(...)):
+async def upload_statement(
+    file: UploadFile = File(...), 
+    account_id: str = Query(...),
+    bank_name: str = Query(default="generic", description="Bank name for parser selection")
+):
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
     
     try:
         contents = await file.read()
-        pdf_file = io.BytesIO(contents)
         
-        # Extract text from PDF
-        text_content = ""
-        with pdfplumber.open(pdf_file) as pdf:
-            for page in pdf.pages:
-                text_content += page.extract_text() + "\n"
+        # Get account details
+        account = await db.accounts.find_one({"id": account_id})
+        if not account:
+            raise HTTPException(status_code=404, detail="Account not found")
         
-        # For MVP, return the extracted text for manual review
-        # In production, implement parsing logic based on statement format
+        account_name = account['name']
+        
+        # Get appropriate parser
+        parser = get_parser(bank_name, account_name)
+        
+        # Parse transactions
+        parsed_transactions = parser.parse(contents)
+        
+        if not parsed_transactions:
+            return {
+                "message": "No transactions found in PDF",
+                "imported_count": 0,
+                "note": "Unable to parse transactions. Please check the file format or try CSV import."
+            }
+        
+        # Import parsed transactions
+        imported_count = 0
+        for txn_data in parsed_transactions:
+            # Check if transaction already exists (avoid duplicates)
+            existing = await db.transactions.find_one({
+                "account_id": account_id,
+                "date": txn_data['date'],
+                "description": txn_data['description'],
+                "amount": txn_data['amount']
+            })
+            
+            if existing:
+                continue
+            
+            txn = Transaction(
+                account_id=account_id,
+                date=txn_data['date'],
+                description=txn_data['description'],
+                amount=txn_data['amount'],
+                transaction_type=txn_data['type']
+            )
+            doc = txn.model_dump()
+            doc['created_at'] = doc['created_at'].isoformat()
+            await db.transactions.insert_one(doc)
+            
+            # Update balance
+            balance_change = txn_data['amount'] if txn_data['type'] == "credit" else -txn_data['amount']
+            await db.accounts.update_one(
+                {"id": account_id},
+                {"$set": {"current_balance": account['current_balance'] + balance_change}}
+            )
+            account['current_balance'] += balance_change
+            imported_count += 1
+        
         return {
-            "message": "PDF processed",
-            "text_preview": text_content[:1000],
-            "note": "PDF parsing is basic. Please add transactions manually or use CSV import."
+            "message": f"Successfully imported {imported_count} transactions",
+            "imported_count": imported_count,
+            "total_found": len(parsed_transactions),
+            "duplicates_skipped": len(parsed_transactions) - imported_count
         }
     except Exception as e:
+        logger.error(f"Error processing PDF: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
 
 # CSV Import endpoint

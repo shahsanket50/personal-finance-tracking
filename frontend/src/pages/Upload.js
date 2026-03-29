@@ -12,6 +12,7 @@ const API = `${BACKEND_URL}/api`;
 const Upload = () => {
   const [accounts, setAccounts] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState('');
+  const [selectedBank, setSelectedBank] = useState('generic');
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
 
@@ -45,17 +46,28 @@ const Upload = () => {
     formData.append('file', file);
 
     try {
-      const endpoint = file.name.endsWith('.csv') ? 'import-csv' : 'upload-statement';
-      const res = await axios.post(`${API}/${endpoint}?account_id=${selectedAccount}`, formData, {
+      let endpoint = file.name.endsWith('.csv') ? 'import-csv' : 'upload-statement';
+      let url = `${API}/${endpoint}?account_id=${selectedAccount}`;
+      
+      // Add bank_name parameter for PDF uploads
+      if (endpoint === 'upload-statement') {
+        url += `&bank_name=${selectedBank}`;
+      }
+      
+      const res = await axios.post(url, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       
       toast.success(res.data.message);
+      if (res.data.imported_count !== undefined) {
+        toast.info(`Imported: ${res.data.imported_count} | Duplicates skipped: ${res.data.duplicates_skipped || 0}`);
+      }
       if (res.data.note) {
         toast.info(res.data.note);
       }
       
       setFile(null);
+      setSelectedBank('generic');
       if (document.getElementById('file-input')) {
         document.getElementById('file-input').value = '';
       }
@@ -93,6 +105,26 @@ const Upload = () => {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            
+            <div>
+              <Label>Bank/Card Type (for PDF parsing)</Label>
+              <Select value={selectedBank} onValueChange={setSelectedBank}>
+                <SelectTrigger data-testid="bank-type-select">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="generic">Generic/Auto-detect</SelectItem>
+                  <SelectItem value="hdfc_diners">HDFC Diners Credit Card</SelectItem>
+                  <SelectItem value="hdfc">HDFC Bank</SelectItem>
+                  <SelectItem value="slice">Slice Card</SelectItem>
+                  <SelectItem value="kotak">Kotak Bank</SelectItem>
+                  <SelectItem value="sbi">SBI Bank</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs mt-1" style={{ color: '#78716C' }}>
+                Select your bank for better parsing accuracy
+              </p>
             </div>
             
             <div>
@@ -148,14 +180,21 @@ const Upload = () => {
               <FilePdf size={24} style={{ color: '#C06B52' }} />
               <h3 className="font-heading text-lg" style={{ color: '#1C1917' }}>PDF Statements</h3>
             </div>
-            <p className="text-sm" style={{ color: '#78716C' }}>
-              PDF parsing is currently in beta. The system will extract text from your PDF statement. 
-              For best results, use CSV format or manually add transactions.
+            <p className="text-sm mb-3" style={{ color: '#78716C' }}>
+              Upload PDF statements from supported banks. The system will automatically extract and parse transactions.
             </p>
-            <div className="mt-4 p-3 bg-[#FEF3C7] border border-[#F59E0B] rounded-lg">
-              <p className="text-sm" style={{ color: '#92400E' }}>
-                <strong>Tip:</strong> Most banks allow you to download CSV or Excel versions of your statements, 
-                which are more reliable for importing.
+            <div className="text-sm mb-2" style={{ color: '#1C1917', fontWeight: '500' }}>Supported Banks:</div>
+            <ul className="text-sm space-y-1 mb-3" style={{ color: '#78716C' }}>
+              <li>• HDFC Diners Credit Card</li>
+              <li>• HDFC Bank</li>
+              <li>• Slice Card</li>
+              <li>• Kotak Bank</li>
+              <li>• SBI Bank</li>
+              <li>• Generic format (auto-detect)</li>
+            </ul>
+            <div className="p-3 bg-[#E7F3F0] border border-[#5C745A] rounded-lg">
+              <p className="text-sm" style={{ color: '#2D4A39' }}>
+                <strong>Note:</strong> Select the correct bank type for accurate parsing. The system will skip duplicate transactions automatically.
               </p>
             </div>
           </div>

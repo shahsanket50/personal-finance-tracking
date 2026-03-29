@@ -1,0 +1,356 @@
+import re
+from datetime import datetime
+from typing import List, Dict, Optional
+import pdfplumber
+import io
+
+class BankStatementParser:
+    """Base class for bank statement parsers"""
+    
+    def __init__(self, account_name: str):
+        self.account_name = account_name
+    
+    def parse(self, pdf_blob: bytes) -> List[Dict]:
+        """Parse PDF and return list of transactions"""
+        raise NotImplementedError("Subclasses must implement parse method")
+    
+    def extract_text(self, pdf_blob: bytes) -> str:
+        """Extract text from PDF using pdfplumber"""
+        text_content = ""
+        pdf_file = io.BytesIO(pdf_blob)
+        with pdfplumber.open(pdf_file) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text_content += page_text + "\n"
+        return text_content
+    
+    def normalize_date(self, date_str: str, date_format: str) -> str:
+        """Convert date string to YYYY-MM-DD format"""
+        try:
+            dt = datetime.strptime(date_str, date_format)
+            return dt.strftime('%Y-%m-%d')
+        except Exception as e:
+            print(f"Error parsing date {date_str}: {e}")
+            return date_str
+
+class HDFCDinersParser(BankStatementParser):
+    """Parser for HDFC Diners Credit Card statements"""
+    
+    def parse(self, pdf_blob: bytes) -> List[Dict]:
+        text = self.extract_text(pdf_blob)
+        
+        if not text or not text.strip():
+            print("No text extracted from PDF")
+            return []
+        
+        # Split into lines
+        lines = text.split('\n')
+        print(f"Total lines extracted: {len(lines)}")
+        
+        # Find section between 'Domestic Transactions' and 'Reward Points Summary'
+        start_idx = -1
+        end_idx = len(lines)
+        
+        for i, line in enumerate(lines):
+            if start_idx == -1 and 'Domestic Transactions' in line:
+                start_idx = i + 1
+            if start_idx != -1 and 'Reward Points Summary' in line:
+                end_idx = i
+                break
+        
+        if start_idx == -1 or start_idx >= end_idx:
+            print("Could not find Domestic Transactions block")
+            return []
+        
+        txn_lines = lines[start_idx:end_idx]
+        print(f"Processing {len(txn_lines)} lines")
+        
+        # Regex patterns
+        date_regex = re.compile(r'^(\d{2}/\d{2}/\d{4}(?:\s+\d{2}:\d{2}:\d{2})?)')
+        amount_regex = re.compile(r'(\d{1,3}(?:,\d{3})*\.\d{2})(\s*Cr)?$')
+        
+        current_transaction = None
+        transactions = []
+        
+        for line in txn_lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Check if line starts with a date
+            date_match = date_regex.match(line)
+            if date_match:
+                # Save previous transaction
+                if current_transaction:
+                    transactions.append(current_transaction)
+                
+                # Extract date (only DD/MM/YYYY part)
+                date_str = date_match.group(1).split(' ')[0]
+                normalized_date = self.normalize_date(date_str, '%d/%m/%Y')
+                
+                # Get rest of line as initial description
+                rest_of_line = date_regex.sub('', line).strip()
+                
+                current_transaction = {
+                    'date': normalized_date,
+                    'description': rest_of_line,
+                    'amount': None,
+                    'type': None,
+                    'account': self.account_name
+                }
+            elif current_transaction:
+                # Append to description
+                if current_transaction['description']:
+                    current_transaction['description'] += ' ' + line
+                else:
+                    current_transaction['description'] = line
+            
+            # Check for amount in line
+            amount_match = amount_regex.search(line)
+            if amount_match and current_transaction:
+                amount_str = amount_match.group(1).replace(',', '')
+                is_credit = bool(amount_match.group(2))
+                
+                current_transaction['amount'] = float(amount_str)
+                current_transaction['type'] = 'credit' if is_credit else 'debit'
+                
+                # Remove amount from description
+                current_transaction['description'] = amount_regex.sub('', current_transaction['description']).strip()
+        
+        # Don't forget last transaction
+        if current_transaction:
+            transactions.append(current_transaction)
+        
+        # Filter out incomplete transactions
+        valid_transactions = [
+            txn for txn in transactions 
+            if txn['date'] and txn['amount'] is not None and txn['description']
+        ]
+        
+        print(f"Total valid transactions parsed: {len(valid_transactions)}")
+        return valid_transactions
+
+class HDFCBankParser(BankStatementParser):
+    """Parser for HDFC Bank account statements"""
+    
+    def parse(self, pdf_blob: bytes) -> List[Dict]:
+        text = self.extract_text(pdf_blob)
+        transactions = []
+        
+        # Pattern: DD/MM/YY DESCRIPTION AMOUNT
+        # Example: 15/01/24 UPI-AMAZON-PAY-BILL-PAYMENT 250.00
+        pattern = re.compile(r'(\d{2}/\d{2}/\d{2})\s+(.+?)\s+(\d+\.\d{2})\s*(Cr|Dr)?$', re.MULTILINE)
+        
+        for match in pattern.finditer(text):
+            date_str = match.group(1)
+            description = match.group(2).strip()
+            amount = float(match.group(3))
+            txn_type = match.group(4)
+            
+            # Normalize date from DD/MM/YY to YYYY-MM-DD
+            normalized_date = self.normalize_date(date_str, '%d/%m/%y')
+            
+            # Determine transaction type
+            if 'SALARY' in description.upper() or 'CREDIT' in description.upper() or txn_type == 'Cr':
+                transaction_type = 'credit'
+            else:
+                transaction_type = 'debit'
+            
+            transactions.append({
+                'date': normalized_date,
+                'description': description,
+                'amount': amount,
+                'type': transaction_type,
+                'account': self.account_name
+            })
+        
+        print(f"HDFC Bank: Parsed {len(transactions)} transactions")
+        return transactions
+
+class SliceBankParser(BankStatementParser):
+    """Parser for Slice Bank statements"""
+    
+    def parse(self, pdf_blob: bytes) -> List[Dict]:
+        text = self.extract_text(pdf_blob)
+        transactions = []
+        
+        # Pattern: DD-MM-YYYY|Description|Category|Amount
+        # Example: 12-01-2024|Zomato|Food|850.50
+        pattern = re.compile(r'(\d{2}-\d{2}-\d{4})\|(.*?)\|(.*?)\|(\d+\.\d{2})', re.MULTILINE)
+        
+        for match in pattern.finditer(text):
+            date_str = match.group(1)
+            description = match.group(2).strip()
+            category = match.group(3).strip()
+            amount = float(match.group(4))
+            
+            # Normalize date from DD-MM-YYYY to YYYY-MM-DD
+            normalized_date = self.normalize_date(date_str, '%d-%m-%Y')
+            
+            # Determine transaction type
+            if 'REPAYMENT' in description.upper() or category.upper() == 'INCOME':
+                transaction_type = 'credit'
+            else:
+                transaction_type = 'debit'
+            
+            transactions.append({
+                'date': normalized_date,
+                'description': f"{description} ({category})",
+                'amount': amount,
+                'type': transaction_type,
+                'account': self.account_name
+            })
+        
+        print(f"Slice Bank: Parsed {len(transactions)} transactions")
+        return transactions
+
+class KotakBankParser(BankStatementParser):
+    """Parser for Kotak Bank statements"""
+    
+    def parse(self, pdf_blob: bytes) -> List[Dict]:
+        text = self.extract_text(pdf_blob)
+        transactions = []
+        
+        # Pattern: Date: DD Mon YYYY, Narration: XXX, Amount: XXX, Type: DR/CR
+        pattern = re.compile(r'Date:\s*(\d{1,2}\s+\w+\s+\d{4}),\s*Narration:\s*(.+?),\s*Amount:\s*(\d+\.\d{2}),\s*Type:\s*(DR|CR)', re.MULTILINE)
+        
+        for match in pattern.finditer(text):
+            date_str = match.group(1)
+            description = match.group(2).strip()
+            amount = float(match.group(3))
+            txn_type = match.group(4)
+            
+            # Normalize date from "DD Mon YYYY" to YYYY-MM-DD
+            normalized_date = self.normalize_date(date_str, '%d %b %Y')
+            
+            transaction_type = 'credit' if txn_type == 'CR' else 'debit'
+            
+            transactions.append({
+                'date': normalized_date,
+                'description': description,
+                'amount': amount,
+                'type': transaction_type,
+                'account': self.account_name
+            })
+        
+        print(f"Kotak Bank: Parsed {len(transactions)} transactions")
+        return transactions
+
+class SBIBankParser(BankStatementParser):
+    """Parser for SBI Bank statements"""
+    
+    def parse(self, pdf_blob: bytes) -> List[Dict]:
+        text = self.extract_text(pdf_blob)
+        transactions = []
+        
+        # Pattern: DD/MM/YYYY To/By/DESCRIPTION AMOUNT Dr/Cr
+        pattern = re.compile(r'(\d{2}/\d{2}/\d{4})\s+(To|By)/(.+?)\s+(\d+\.\d{2})\s+(Dr|Cr)', re.MULTILINE)
+        
+        for match in pattern.finditer(text):
+            date_str = match.group(1)
+            direction = match.group(2)
+            description = match.group(3).strip()
+            amount = float(match.group(4))
+            txn_type = match.group(5)
+            
+            # Normalize date from DD/MM/YYYY to YYYY-MM-DD
+            normalized_date = self.normalize_date(date_str, '%d/%m/%Y')
+            
+            transaction_type = 'credit' if txn_type == 'Cr' or direction == 'By' else 'debit'
+            
+            transactions.append({
+                'date': normalized_date,
+                'description': description,
+                'amount': amount,
+                'type': transaction_type,
+                'account': self.account_name
+            })
+        
+        print(f"SBI Bank: Parsed {len(transactions)} transactions")
+        return transactions
+
+class GenericParser(BankStatementParser):
+    """Generic parser for unknown statement formats"""
+    
+    def parse(self, pdf_blob: bytes) -> List[Dict]:
+        text = self.extract_text(pdf_blob)
+        transactions = []
+        
+        # Try multiple common date formats and patterns
+        patterns = [
+            # Pattern 1: Mon DD, YYYY - Description - Type - Category - $Amount
+            re.compile(r'(\w+\s+\d{1,2},\s+\d{4})\s+-\s+(.+?)\s+-\s+(Income|Expense|Transfer)\s+-\s+(.+?)\s+-\s+\$?([\d,]+\.\d{2})', re.MULTILINE),
+            # Pattern 2: DD/MM/YYYY Description Amount
+            re.compile(r'(\d{2}/\d{2}/\d{4})\s+(.+?)\s+([\d,]+\.\d{2})', re.MULTILINE),
+            # Pattern 3: YYYY-MM-DD Description Amount
+            re.compile(r'(\d{4}-\d{2}-\d{2})\s+(.+?)\s+([\d,]+\.\d{2})', re.MULTILINE),
+        ]
+        
+        for pattern in patterns:
+            matches = list(pattern.finditer(text))
+            if matches:
+                for match in matches:
+                    try:
+                        if len(match.groups()) >= 3:
+                            date_str = match.group(1)
+                            description = match.group(2).strip()
+                            
+                            # Try to parse date with multiple formats
+                            normalized_date = None
+                            for fmt in ['%b %d, %Y', '%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y']:
+                                try:
+                                    normalized_date = self.normalize_date(date_str, fmt)
+                                    break
+                                except:
+                                    continue
+                            
+                            if not normalized_date:
+                                continue
+                            
+                            # Determine type from description or explicit type field
+                            if len(match.groups()) >= 5:
+                                txn_type_str = match.group(3)
+                                amount = float(match.group(5).replace(',', '').replace('$', ''))
+                                transaction_type = 'credit' if txn_type_str == 'Income' else 'debit'
+                            else:
+                                amount = float(match.group(3).replace(',', '').replace('$', ''))
+                                # Infer type from description
+                                if any(word in description.upper() for word in ['SALARY', 'PAYCHECK', 'DEPOSIT', 'CREDIT', 'REFUND']):
+                                    transaction_type = 'credit'
+                                else:
+                                    transaction_type = 'debit'
+                            
+                            transactions.append({
+                                'date': normalized_date,
+                                'description': description,
+                                'amount': amount,
+                                'type': transaction_type,
+                                'account': self.account_name
+                            })
+                    except Exception as e:
+                        print(f"Error parsing transaction: {e}")
+                        continue
+                
+                if transactions:
+                    break
+        
+        print(f"Generic Parser: Parsed {len(transactions)} transactions")
+        return transactions
+
+def get_parser(bank_name: str, account_name: str) -> BankStatementParser:
+    """Factory function to get appropriate parser based on bank name"""
+    bank_name_lower = bank_name.lower()
+    
+    if 'hdfc' in bank_name_lower and 'diners' in bank_name_lower:
+        return HDFCDinersParser(account_name)
+    elif 'hdfc' in bank_name_lower:
+        return HDFCBankParser(account_name)
+    elif 'slice' in bank_name_lower:
+        return SliceBankParser(account_name)
+    elif 'kotak' in bank_name_lower:
+        return KotakBankParser(account_name)
+    elif 'sbi' in bank_name_lower:
+        return SBIBankParser(account_name)
+    else:
+        return GenericParser(account_name)
