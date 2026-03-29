@@ -496,6 +496,7 @@ async def upload_statement(
     
     try:
         contents = await file.read()
+        logger.info(f"Processing PDF: {file.filename}, Size: {len(contents)} bytes, Bank: {bank_name}")
         
         # Get account details
         account = await db.accounts.find_one({"id": account_id})
@@ -503,18 +504,28 @@ async def upload_statement(
             raise HTTPException(status_code=404, detail="Account not found")
         
         account_name = account['name']
+        logger.info(f"Account: {account_name}")
         
         # Get appropriate parser
         parser = get_parser(bank_name, account_name)
+        logger.info(f"Using parser: {parser.__class__.__name__}")
         
         # Parse transactions
         parsed_transactions = parser.parse(contents)
+        logger.info(f"Parsed {len(parsed_transactions)} transactions")
         
         if not parsed_transactions:
+            # Try to extract text for debugging
+            try:
+                text_preview = parser.extract_text(contents)[:500]
+                logger.warning(f"No transactions parsed. Text preview: {text_preview}")
+            except:
+                pass
+            
             return {
                 "message": "No transactions found in PDF",
                 "imported_count": 0,
-                "note": "Unable to parse transactions. Please check the file format or try CSV import."
+                "note": f"Unable to parse transactions with {bank_name} parser. Try a different bank type or use CSV import. Check backend logs for details."
             }
         
         # Import parsed transactions
@@ -560,6 +571,48 @@ async def upload_statement(
     except Exception as e:
         logger.error(f"Error processing PDF: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
+
+# Debug endpoint for PDF text extraction
+@api_router.post("/debug-pdf")
+async def debug_pdf_upload(
+    file: UploadFile = File(...),
+    bank_name: str = Query(default="hdfc_diners")
+):
+    """Debug endpoint to see extracted text and parsed transactions without importing"""
+    if not file.filename.endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+    
+    try:
+        contents = await file.read()
+        
+        # Get parser
+        parser = get_parser(bank_name, "Debug Account")
+        
+        # Extract text
+        extracted_text = parser.extract_text(contents)
+        
+        # Parse transactions
+        parsed_transactions = parser.parse(contents)
+        
+        return {
+            "filename": file.filename,
+            "file_size": len(contents),
+            "parser_used": parser.__class__.__name__,
+            "text_length": len(extracted_text),
+            "text_preview": extracted_text[:1000],
+            "text_full": extracted_text,
+            "transactions_found": len(parsed_transactions),
+            "transactions": parsed_transactions[:10],  # First 10 only
+            "all_transactions": parsed_transactions
+        }
+    except Exception as e:
+        logger.error(f"Error debugging PDF: {str(e)}")
+        import traceback
+        return {
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "filename": file.filename
+        }
 
 # CSV Import endpoint
 @api_router.post("/import-csv")

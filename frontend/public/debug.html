@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Parser Debugger</title>
+    <style>
+        body {
+            font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #F9F8F6;
+        }
+        h1 {
+            font-family: 'Manrope', sans-serif;
+            color: #1C1917;
+        }
+        .container {
+            background: white;
+            border: 1px solid #E5E2DC;
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 16px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #1C1917;
+            font-weight: 500;
+        }
+        select, input[type="file"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #E5E2DC;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        button {
+            background: #5C745A;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        button:hover {
+            background: #475F45;
+        }
+        button:disabled {
+            background: #A8A29E;
+            cursor: not-allowed;
+        }
+        .output {
+            background: #F9F8F6;
+            border: 1px solid #E5E2DC;
+            border-radius: 6px;
+            padding: 16px;
+            margin-top: 16px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .success { color: #5C745A; }
+        .error { color: #C06B52; }
+        .info { color: #7CA1A6; }
+        .section {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 2px solid #E5E2DC;
+        }
+        .transaction {
+            background: white;
+            border: 1px solid #E5E2DC;
+            border-radius: 4px;
+            padding: 12px;
+            margin-bottom: 8px;
+        }
+        .transaction-date { color: #78716C; font-size: 12px; }
+        .transaction-desc { color: #1C1917; font-weight: 500; margin: 4px 0; }
+        .transaction-amount { font-family: 'IBM Plex Mono', monospace; }
+        .credit { color: #5C745A; }
+        .debit { color: #C06B52; }
+    </style>
+</head>
+<body>
+    <h1>🔍 PDF Parser Debugger</h1>
+    
+    <div class="container">
+        <h2>Upload & Debug</h2>
+        <form id="debugForm">
+            <div class="form-group">
+                <label for="bankType">Bank Type</label>
+                <select id="bankType" name="bank_name">
+                    <option value="hdfc_diners">HDFC Diners Credit Card</option>
+                    <option value="hdfc">HDFC Bank</option>
+                    <option value="slice">Slice Card</option>
+                    <option value="kotak">Kotak Bank</option>
+                    <option value="sbi">SBI Bank</option>
+                    <option value="generic">Generic/Auto-detect</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="pdfFile">Select PDF Statement</label>
+                <input type="file" id="pdfFile" accept=".pdf" required>
+            </div>
+            
+            <button type="submit" id="submitBtn">🔍 Debug PDF</button>
+        </form>
+    </div>
+    
+    <div id="results"></div>
+    
+    <script>
+        const API_URL = window.location.origin + '/api';
+        
+        document.getElementById('debugForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const submitBtn = document.getElementById('submitBtn');
+            const resultsDiv = document.getElementById('results');
+            const fileInput = document.getElementById('pdfFile');
+            const bankType = document.getElementById('bankType').value;
+            
+            if (!fileInput.files[0]) {
+                alert('Please select a PDF file');
+                return;
+            }
+            
+            submitBtn.disabled = true;
+            submitBtn.textContent = '⏳ Processing...';
+            resultsDiv.innerHTML = '<div class="container"><p class="info">Processing PDF...</p></div>';
+            
+            try {
+                const formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+                
+                const response = await fetch(`${API_URL}/debug-pdf?bank_name=${bankType}`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    resultsDiv.innerHTML = `
+                        <div class="container">
+                            <h2 class="error">❌ Error</h2>
+                            <div class="output error">${data.error}\n\n${data.traceback || ''}</div>
+                        </div>
+                    `;
+                } else {
+                    displayResults(data);
+                }
+            } catch (error) {
+                resultsDiv.innerHTML = `
+                    <div class="container">
+                        <h2 class="error">❌ Error</h2>
+                        <div class="output error">Failed to process PDF: ${error.message}</div>
+                    </div>
+                `;
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = '🔍 Debug PDF';
+            }
+        });
+        
+        function displayResults(data) {
+            const resultsDiv = document.getElementById('results');
+            
+            let html = `
+                <div class="container">
+                    <h2 class="success">✅ PDF Processed</h2>
+                    
+                    <h3>📊 Summary</h3>
+                    <div class="output">
+Filename: ${data.filename}
+File Size: ${(data.file_size / 1024).toFixed(2)} KB
+Parser Used: ${data.parser_used}
+Text Extracted: ${data.text_length} characters
+Transactions Found: ${data.transactions_found}
+                    </div>
+                    
+                    <h3>📝 Text Preview (First 1000 chars)</h3>
+                    <div class="output">${escapeHtml(data.text_preview)}</div>
+                    
+                    <details class="section">
+                        <summary style="cursor: pointer; font-weight: 600; color: #1C1917;">📄 Full Extracted Text</summary>
+                        <div class="output">${escapeHtml(data.text_full)}</div>
+                    </details>
+                </div>
+            `;
+            
+            if (data.transactions_found > 0) {
+                html += `
+                    <div class="container">
+                        <h2>💰 Parsed Transactions (${data.transactions_found})</h2>
+                        <div id="transactions">
+                `;
+                
+                data.all_transactions.forEach((txn, idx) => {
+                    const typeClass = txn.type === 'credit' ? 'credit' : 'debit';
+                    const sign = txn.type === 'credit' ? '+' : '-';
+                    html += `
+                        <div class="transaction">
+                            <div class="transaction-date">${idx + 1}. ${txn.date}</div>
+                            <div class="transaction-desc">${escapeHtml(txn.description)}</div>
+                            <div class="transaction-amount ${typeClass}">${sign}₹${txn.amount.toFixed(2)}</div>
+                        </div>
+                    `;
+                });
+                
+                html += `
+                        </div>
+                        
+                        <details class="section">
+                            <summary style="cursor: pointer; font-weight: 600; color: #1C1917;">📋 JSON Output</summary>
+                            <div class="output">${JSON.stringify(data.all_transactions, null, 2)}</div>
+                        </details>
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="container">
+                        <h2 class="error">⚠️ No Transactions Found</h2>
+                        <p>The parser couldn't find any transactions. This could mean:</p>
+                        <ul>
+                            <li>The PDF format doesn't match the expected pattern</li>
+                            <li>Section markers are different (check the extracted text above)</li>
+                            <li>Date or amount format is different</li>
+                            <li>PDF is image-based (scanned) rather than text-based</li>
+                        </ul>
+                        <p><strong>Next steps:</strong> Review the extracted text above and check if it matches the expected format, or try a different bank type.</p>
+                    </div>
+                `;
+            }
+            
+            resultsDiv.innerHTML = html;
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
