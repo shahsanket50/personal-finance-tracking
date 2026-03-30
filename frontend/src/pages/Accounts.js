@@ -22,6 +22,7 @@ const Accounts = () => {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyAccount, setHistoryAccount] = useState(null);
   const [syncHistory, setSyncHistory] = useState([]);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
     account_type: 'bank',
@@ -65,10 +66,10 @@ const Accounts = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this account?')) return;
     try {
-      await axios.delete(`${API}/accounts/${id}`);
-      toast.success('Account deleted');
+      const res = await axios.delete(`${API}/accounts/${id}`);
+      toast.success(res.data.message || 'Account deleted');
+      setDeleteTarget(null);
       loadAccounts();
     } catch (err) {
       toast.error('Failed to delete account');
@@ -265,7 +266,7 @@ const Accounts = () => {
                   <Pencil size={18} />
                 </button>
                 <button
-                  onClick={() => handleDelete(account.id)}
+                  onClick={() => setDeleteTarget(account)}
                   data-testid={`delete-account-${account.id}`}
                   className="text-[#C06B52] hover:text-[#A35943] transition-colors duration-200"
                 >
@@ -451,6 +452,40 @@ const Accounts = () => {
                 );
               })
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteTarget} onOpenChange={(v) => { if (!v) setDeleteTarget(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Delete Account</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm" style={{ color: 'var(--app-text)' }}>
+              Are you sure you want to delete <strong>{deleteTarget?.name}</strong>?
+            </p>
+            <div className="p-3 rounded-lg text-xs space-y-1" style={{ background: 'var(--app-badge-bg)', color: 'var(--app-text-secondary)' }}>
+              <p>This will permanently delete:</p>
+              <ul className="list-disc list-inside space-y-0.5 ml-1">
+                <li>The account and its settings</li>
+                <li>All transactions in this account</li>
+                <li>All sync history and processed emails</li>
+              </ul>
+            </div>
+            <div className="flex gap-2 justify-end pt-2">
+              <Button variant="outline" onClick={() => setDeleteTarget(null)}
+                data-testid="cancel-delete-btn"
+                className="rounded-lg border" style={{ borderColor: 'var(--app-card-border)' }}>
+                Cancel
+              </Button>
+              <Button onClick={() => handleDelete(deleteTarget?.id)}
+                data-testid="confirm-delete-account-btn"
+                className="bg-red-600 hover:bg-red-700 text-white rounded-lg">
+                Delete Account
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

@@ -8,10 +8,9 @@ import Dashboard from './pages/Dashboard';
 import Accounts from './pages/Accounts';
 import Transactions from './pages/Transactions';
 import Upload from './pages/Upload';
-import Analytics from './pages/Analytics';
 import Categories from './pages/Categories';
 import Settings from './pages/Settings';
-import { House, CreditCard, ArrowsLeftRight, UploadSimple, ChartLine, Tag, SignOut, List, Gear } from '@phosphor-icons/react';
+import { House, CreditCard, ArrowsLeftRight, UploadSimple, Tag, SignOut, List, Gear } from '@phosphor-icons/react';
 import './App.css';
 
 const NAV_ITEMS = [
@@ -19,7 +18,6 @@ const NAV_ITEMS = [
   { path: '/accounts', label: 'Accounts', icon: CreditCard },
   { path: '/transactions', label: 'Transactions', icon: ArrowsLeftRight },
   { path: '/upload', label: 'Upload', icon: UploadSimple },
-  { path: '/analytics', label: 'Analytics', icon: ChartLine },
   { path: '/categories', label: 'Categories', icon: Tag },
   { path: '/settings', label: 'Settings', icon: Gear },
 ];
@@ -157,7 +155,6 @@ function AppLayout() {
             <Route path="/accounts" element={<Accounts />} />
             <Route path="/transactions" element={<Transactions />} />
             <Route path="/upload" element={<Upload />} />
-            <Route path="/analytics" element={<Analytics />} />
             <Route path="/categories" element={<Categories />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>

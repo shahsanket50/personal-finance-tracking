@@ -312,11 +312,14 @@ async def update_account(account_id: str, account: AccountCreate, user: Dict = D
 
 @api_router.delete("/accounts/{account_id}")
 async def delete_account(account_id: str, user: Dict = Depends(get_current_user)):
-    result = await db.accounts.delete_one({"id": account_id, "user_id": user["user_id"]})
+    uid = user["user_id"]
+    result = await db.accounts.delete_one({"id": account_id, "user_id": uid})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Account not found")
-    await db.transactions.delete_many({"account_id": account_id, "user_id": user["user_id"]})
-    return {"message": "Account deleted"}
+    txn_result = await db.transactions.delete_many({"account_id": account_id, "user_id": uid})
+    await db.sync_history.delete_many({"account_id": account_id, "user_id": uid})
+    await db.processed_emails.delete_many({"account_id": account_id, "user_id": uid})
+    return {"message": f"Account deleted along with {txn_result.deleted_count} transactions"}
 
 # Category endpoints
 @api_router.post("/categories", response_model=Category)
@@ -1039,6 +1042,20 @@ async def import_backup(request: Request, user: Dict = Depends(get_current_user)
 
     return {"message": "Backup restored", "imported": imported}
 
+# ─── Data Cleanup ────────────────────────────────────────────────────
+@api_router.post("/reset-all-data")
+async def reset_all_data(user: Dict = Depends(get_current_user)):
+    """Delete ALL user data (accounts, transactions, categories, sync history). Keeps email config and user."""
+    uid = user["user_id"]
+    deleted = {}
+    deleted["transactions"] = (await db.transactions.delete_many({"user_id": uid})).deleted_count
+    deleted["accounts"] = (await db.accounts.delete_many({"user_id": uid})).deleted_count
+    deleted["categories"] = (await db.categories.delete_many({"user_id": uid})).deleted_count
+    deleted["sync_history"] = (await db.sync_history.delete_many({"user_id": uid})).deleted_count
+    deleted["processed_emails"] = (await db.processed_emails.delete_many({"user_id": uid})).deleted_count
+    return {"message": "All data has been reset", "deleted": deleted}
+
+
 # ─── Email Config & Scanner ──────────────────────────────────────────
 class EmailConfigModel(BaseModel):
     imap_server: str = "imap.gmail.com"
@@ -1436,12 +1453,58 @@ async def sync_account_email(account_id: str, user: Dict = Depends(get_current_u
 
     await _log_sync(uid, account_id, account["name"], status, total_imported, total_skipped, None, files_found, filter_text, emails_matched)
 
+    # Auto-categorize newly imported transactions
+    categorized_count = 0
+    if total_imported > 0:
+        try:
+            uncategorized = await db.transactions.find(
+                {"user_id": uid, "account_id": account_id, "category_id": None, "is_transfer": False},
+                {"_id": 0}
+            ).to_list(500)
+            if uncategorized:
+                categories = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(100)
+                category_names = [c['name'] for c in categories if c['name'] != 'Transfer']
+                category_map = {c['name'].lower(): c['id'] for c in categories}
+                descriptions = [{"id": t["id"], "desc": t["description"], "amount": t["amount"], "type": t["transaction_type"]} for t in uncategorized[:100]]
+
+                prompt = f"""Categorize the following financial transactions into one of these categories: {', '.join(category_names)}.
+Return ONLY a JSON array with objects having "id" and "category" fields. No explanation.
+Transactions:
+{[{"id": d["id"], "description": d["desc"], "amount": d["amount"], "type": d["type"]} for d in descriptions]}"""
+
+                from emergentintegrations.llm.chat import LlmChat, UserMessage
+                import json as json_mod
+                chat = LlmChat(
+                    api_key=os.environ.get("EMERGENT_LLM_KEY", ""),
+                    session_id=f"auto_cat_{uid}_{uuid.uuid4().hex[:8]}",
+                    system_message="You are a financial transaction categorizer. Return only valid JSON."
+                )
+                chat.with_model("gemini", "gemini-2.5-flash")
+                response = await chat.send_message(UserMessage(text=prompt))
+                json_text = response.strip()
+                if "```json" in json_text:
+                    json_text = json_text.split("```json")[1].split("```")[0].strip()
+                elif "```" in json_text:
+                    json_text = json_text.split("```")[1].split("```")[0].strip()
+                categorizations = json_mod.loads(json_text)
+                for item in categorizations:
+                    txn_id = item.get("id")
+                    cat_name = item.get("category", "").lower()
+                    cat_id = category_map.get(cat_name)
+                    if txn_id and cat_id:
+                        result = await db.transactions.update_one({"id": txn_id, "user_id": uid}, {"$set": {"category_id": cat_id}})
+                        if result.modified_count > 0:
+                            categorized_count += 1
+        except Exception as e:
+            logger.warning(f"Auto-categorization after sync failed: {e}")
+
     return {
-        "message": msg,
+        "message": msg + (f" Auto-categorized {categorized_count} transactions." if categorized_count > 0 else ""),
         "status": status,
         "total_imported": total_imported,
         "total_skipped": total_skipped,
         "emails_matched": emails_matched,
+        "categorized_count": categorized_count,
         "filter_used": filter_text,
         "files_found": files_found
     }

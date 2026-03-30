@@ -4,8 +4,9 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
-import { EnvelopeSimple, MagnifyingGlass, DownloadSimple, UploadSimple, CloudArrowUp, Check, Palette, AndroidLogo } from '@phosphor-icons/react';
+import { EnvelopeSimple, MagnifyingGlass, DownloadSimple, UploadSimple, CloudArrowUp, Check, Palette, AndroidLogo, Trash, Warning } from '@phosphor-icons/react';
 import { useTheme } from '../contexts/ThemeContext';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 
 const API = process.env.REACT_APP_BACKEND_URL + '/api';
 
@@ -17,6 +18,9 @@ const Settings = () => {
   const [scanResults, setScanResults] = useState(null);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => { loadEmailConfig(); }, []);
 
@@ -311,7 +315,82 @@ const Settings = () => {
           </span>
         </div>
       </div>
+
+      {/* Danger Zone - Data Cleanup */}
+      <div className="rounded-lg p-6 border-2 border-red-200" style={{ background: 'var(--app-card-bg)' }}>
+        <h3 className="text-lg font-semibold mb-1 text-red-600">
+          <Trash size={20} className="inline mr-2" />
+          Danger Zone
+        </h3>
+        <p className="text-sm mb-4" style={{ color: 'var(--app-text-secondary)' }}>
+          Reset all your data to start fresh. This will permanently delete all accounts, transactions, categories, and sync history. Your email configuration and user account will be preserved.
+        </p>
+        <Button
+          data-testid="reset-all-data-btn"
+          onClick={() => setResetOpen(true)}
+          className="bg-red-600 hover:bg-red-700 text-white rounded-lg"
+        >
+          <Warning size={18} className="mr-2" />
+          Reset All Data
+        </Button>
+      </div>
+
+      {/* Reset Confirmation Dialog */}
+      <Dialog open={resetOpen} onOpenChange={(v) => { if (!v) { setResetOpen(false); setResetConfirmText(''); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Reset All Data</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm" style={{ color: 'var(--app-text)' }}>
+              This will permanently delete:
+            </p>
+            <div className="p-3 rounded-lg text-xs space-y-1 bg-red-50 text-red-700">
+              <ul className="list-disc list-inside space-y-0.5">
+                <li>All accounts</li>
+                <li>All transactions</li>
+                <li>All custom categories</li>
+                <li>All sync history & processed emails</li>
+              </ul>
+            </div>
+            <div>
+              <Label className="text-sm">Type <strong>RESET</strong> to confirm:</Label>
+              <Input
+                data-testid="reset-confirm-input"
+                value={resetConfirmText}
+                onChange={e => setResetConfirmText(e.target.value)}
+                placeholder="Type RESET"
+                className="mt-1"
+              />
+            </div>
+            <div className="flex gap-2 justify-end pt-2">
+              <Button variant="outline" onClick={() => { setResetOpen(false); setResetConfirmText(''); }}
+                className="rounded-lg border" style={{ borderColor: 'var(--app-card-border)' }}>
+                Cancel
+              </Button>
+              <Button
+                disabled={resetConfirmText !== 'RESET' || resetting}
+                data-testid="confirm-reset-btn"
+                onClick={async () => {
+                  setResetting(true);
+                  try {
+                    const res = await axios.post(`${API}/reset-all-data`);
+                    toast.success(res.data.message);
+                    setResetOpen(false);
+                    setResetConfirmText('');
+                  } catch { toast.error('Reset failed'); }
+                  finally { setResetting(false); }
+                }}
+                className="bg-red-600 hover:bg-red-700 text-white rounded-lg disabled:opacity-50"
+              >
+                {resetting ? 'Resetting...' : 'Reset Everything'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
+
   );
 };
 
