@@ -155,6 +155,7 @@ function AppLayout() {
             <Route path="/accounts" element={<Accounts />} />
             <Route path="/transactions" element={<Transactions />} />
             <Route path="/upload" element={<Upload />} />
+            <Route path="/analytics" element={<Navigate to="/" replace />} />
             <Route path="/categories" element={<Categories />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
