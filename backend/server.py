@@ -191,6 +191,7 @@ class Account(BaseModel):
     pdf_password: Optional[str] = None
     custom_parser: Optional[Dict] = None
     email_filter: Optional[str] = None  # Filter text for email auto-detection
+    email_from_filter: Optional[str] = None  # Filter by sender email address
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class AccountCreate(BaseModel):
@@ -200,6 +201,7 @@ class AccountCreate(BaseModel):
     pdf_password: Optional[str] = None
     custom_parser: Optional[Dict] = None
     email_filter: Optional[str] = None
+    email_from_filter: Optional[str] = None  # Filter by sender email address
 
 class Category(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -1242,6 +1244,175 @@ async def scan_email_for_statements(user: Dict = Depends(get_current_user)):
         "details": results
     }
 
+# ─── Shared IMAP Helper ──────────────────────────────────────────────
+async def _imap_connect_and_search(email_config, account):
+    """Connect to IMAP, search emails matching account filters. Returns (mail_conn, message_ids, error_msg)"""
+    import imaplib
+    try:
+        mail = imaplib.IMAP4_SSL(email_config["imap_server"])
+        mail.login(email_config["email_address"], email_config["app_password"])
+        try:
+            status, _ = mail.select('"[Gmail]/All Mail"')
+            if status != 'OK':
+                mail.select("INBOX")
+        except Exception:
+            mail.select("INBOX")
+    except Exception as e:
+        error_msg = str(e)
+        if error_msg.startswith("b'") or error_msg.startswith('b"'):
+            error_msg = error_msg[2:-1]
+        if "Application-specific password" in error_msg or "app password" in error_msg.lower():
+            error_msg = "Gmail requires an App Password for IMAP access. Generate one at myaccount.google.com/apppasswords (2FA must be enabled)."
+        elif "authentication failed" in error_msg.lower() or "invalid credentials" in error_msg.lower():
+            error_msg = "Login failed. Check your email address and App Password in Settings."
+        return None, [], error_msg
+
+    # Build IMAP search criteria
+    sync_since_imap = ""
+    if email_config.get("sync_since"):
+        try:
+            from datetime import datetime as dt
+            d = dt.strptime(email_config["sync_since"], "%Y-%m-%d")
+            sync_since_imap = d.strftime("%d-%b-%Y")
+        except Exception:
+            pass
+
+    filter_text = account["email_filter"]
+    from_filter = account.get("email_from_filter", "")
+    date_criteria = f' SINCE {sync_since_imap}' if sync_since_imap else ''
+    from_criteria = f' FROM "{from_filter}"' if from_filter else ''
+
+    # Strategy 1: Exact subject match + from + date
+    _, msg_nums = mail.search(None, f'(SUBJECT "{filter_text}"{from_criteria}{date_criteria})')
+    # Strategy 2: Body search fallback
+    if not msg_nums[0]:
+        _, msg_nums = mail.search(None, f'(BODY "{filter_text}"{from_criteria}{date_criteria})')
+    # Strategy 3: Split keywords
+    if not msg_nums[0] and len(filter_text.split()) > 2:
+        words = [w for w in filter_text.split() if len(w) > 3][:4]
+        if words:
+            criteria = ' '.join(f'SUBJECT "{w}"' for w in words)
+            _, msg_nums = mail.search(None, f'({criteria}{from_criteria}{date_criteria})')
+
+    message_ids = msg_nums[0].split()[-20:] if msg_nums[0] else []
+    return mail, message_ids, None
+
+
+# ─── Account Email Sync Preview ──────────────────────────────────────
+@api_router.post("/accounts/{account_id}/sync-preview")
+async def sync_account_preview(account_id: str, user: Dict = Depends(get_current_user)):
+    """Preview what would be synced — shows matching emails and PDF details without importing"""
+    import email as email_lib
+    from email.header import decode_header
+    import hashlib
+
+    uid = user["user_id"]
+    account = await db.accounts.find_one({"id": account_id, "user_id": uid}, {"_id": 0})
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    if not account.get("email_filter"):
+        raise HTTPException(status_code=400, detail="No email filter configured for this account.")
+
+    email_config = await db.email_configs.find_one({"user_id": uid}, {"_id": 0})
+    if not email_config or not email_config.get("app_password"):
+        raise HTTPException(status_code=400, detail="Email not configured in Settings.")
+
+    mail, message_ids, error = await _imap_connect_and_search(email_config, account)
+    if error:
+        raise HTTPException(status_code=400, detail=f"Email connection failed: {error}")
+
+    previews = []
+    try:
+        for msg_num in message_ids:
+            _, msg_data = mail.fetch(msg_num, "(RFC822)")
+            email_message = email_lib.message_from_bytes(msg_data[0][1])
+            message_id = email_message.get("Message-ID", "")
+            email_hash = hashlib.md5(f"{message_id}_{account_id}".encode()).hexdigest()
+
+            # Decode subject
+            raw_subject = email_message.get("Subject", "")
+            decoded_parts = decode_header(raw_subject)
+            subject = ""
+            for part, encoding in decoded_parts:
+                if isinstance(part, bytes):
+                    subject += part.decode(encoding or "utf-8", errors="replace")
+                else:
+                    subject += str(part)
+
+            from_addr = email_message.get("From", "")
+            email_date = email_message.get("Date", "")
+
+            # Check if already processed
+            already_processed = await db.processed_emails.find_one({"email_hash": email_hash, "user_id": uid})
+
+            # Find PDF attachments
+            pdfs = []
+            for part in email_message.walk():
+                if part.get_content_type() == "application/pdf":
+                    filename = part.get_filename() or "statement.pdf"
+                    pdf_data = part.get_payload(decode=True)
+                    size_kb = round(len(pdf_data) / 1024, 1) if pdf_data else 0
+
+                    # Try to parse for transaction count (dry run)
+                    txn_count = 0
+                    parse_status = "unknown"
+                    if pdf_data:
+                        password = account.get("pdf_password", "")
+                        custom_pattern = account.get("custom_parser")
+                        parser = get_simple_parser(account["name"], custom_pattern)
+                        try:
+                            parsed = parser.parse(pdf_data, password or None)
+                            txn_count = len(parsed)
+                            parse_status = "ok" if txn_count > 0 else "empty"
+                        except Exception as pe:
+                            err_lower = str(pe).lower()
+                            if "password" in err_lower or "encrypt" in err_lower or "decrypt" in err_lower:
+                                parse_status = "password_error"
+                            else:
+                                parse_status = "parse_error"
+
+                    pdfs.append({
+                        "filename": filename,
+                        "size_kb": size_kb,
+                        "transactions_found": txn_count,
+                        "parse_status": parse_status
+                    })
+
+            previews.append({
+                "subject": subject[:120],
+                "from": from_addr[:80],
+                "date": str(email_date)[:30],
+                "already_synced": bool(already_processed),
+                "pdfs": pdfs,
+                "total_transactions": sum(p["transactions_found"] for p in pdfs)
+            })
+    finally:
+        mail.logout()
+
+    # Summary
+    total_emails = len(previews)
+    new_emails = sum(1 for p in previews if not p["already_synced"])
+    total_pdfs = sum(len(p["pdfs"]) for p in previews)
+    total_txns = sum(p["total_transactions"] for p in previews if not p["already_synced"])
+    password_errors = sum(1 for p in previews for pdf in p["pdfs"] if pdf["parse_status"] == "password_error")
+
+    return {
+        "account_name": account["name"],
+        "filter_used": account["email_filter"],
+        "from_filter": account.get("email_from_filter", ""),
+        "sync_since": email_config.get("sync_since", ""),
+        "summary": {
+            "total_emails": total_emails,
+            "new_emails": new_emails,
+            "already_synced": total_emails - new_emails,
+            "total_pdfs": total_pdfs,
+            "total_transactions": total_txns,
+            "password_errors": password_errors
+        },
+        "emails": previews
+    }
+
+
 # ─── Account-level Email Sync ────────────────────────────────────────
 @api_router.post("/accounts/{account_id}/sync")
 async def sync_account_email(account_id: str, user: Dict = Depends(get_current_user)):
@@ -1262,61 +1433,17 @@ async def sync_account_email(account_id: str, user: Dict = Depends(get_current_u
     if not email_config or not email_config.get("app_password"):
         raise HTTPException(status_code=400, detail="Email not configured. Go to Settings to set up email scanning.")
 
-    try:
-        mail = imaplib.IMAP4_SSL(email_config["imap_server"])
-        mail.login(email_config["email_address"], email_config["app_password"])
-        # Try [Gmail]/All Mail first (searches all labels/folders), fallback to INBOX
-        try:
-            status, _ = mail.select('"[Gmail]/All Mail"')
-            if status != 'OK':
-                mail.select("INBOX")
-        except Exception:
-            mail.select("INBOX")
-    except Exception as e:
-        error_msg = str(e)
-        # Clean up raw bytes error messages from IMAP
-        if error_msg.startswith("b'") or error_msg.startswith('b"'):
-            error_msg = error_msg[2:-1]
-        if "Application-specific password" in error_msg or "app password" in error_msg.lower():
-            error_msg = "Gmail requires an App Password for IMAP access. Generate one at myaccount.google.com/apppasswords (2FA must be enabled)."
-        elif "authentication failed" in error_msg.lower() or "invalid credentials" in error_msg.lower():
-            error_msg = "Login failed. Check your email address and App Password in Settings."
-        await _log_sync(uid, account_id, account["name"], "failed", 0, 0, error_msg)
-        raise HTTPException(status_code=400, detail=f"Email connection failed: {error_msg}")
+    mail, message_ids, error = await _imap_connect_and_search(email_config, account)
+    if error:
+        await _log_sync(uid, account_id, account["name"], "failed", 0, 0, error)
+        raise HTTPException(status_code=400, detail=f"Email connection failed: {error}")
 
     total_imported = 0
     total_skipped = 0
     files_found = []
-    emails_matched = 0
-
-    # Build IMAP date filter from sync_since
-    sync_since_imap = ""
-    if email_config.get("sync_since"):
-        try:
-            from datetime import datetime as dt
-            d = dt.strptime(email_config["sync_since"], "%Y-%m-%d")
-            sync_since_imap = d.strftime("%d-%b-%Y")
-        except Exception:
-            pass
+    emails_matched = len(message_ids)
 
     try:
-        filter_text = account["email_filter"]
-        date_criteria = f' SINCE {sync_since_imap}' if sync_since_imap else ''
-        # Strategy 1: Exact subject match
-        _, msg_nums = mail.search(None, f'(SUBJECT "{filter_text}"{date_criteria})')
-        # Strategy 2: Body search fallback
-        if not msg_nums[0]:
-            _, msg_nums = mail.search(None, f'(BODY "{filter_text}"{date_criteria})')
-        # Strategy 3: Search with individual key words if filter has multiple words
-        if not msg_nums[0] and len(filter_text.split()) > 2:
-            words = [w for w in filter_text.split() if len(w) > 3][:4]
-            if words:
-                criteria = ' '.join(f'SUBJECT "{w}"' for w in words)
-                _, msg_nums = mail.search(None, f'({criteria}{date_criteria})')
-
-        message_ids = msg_nums[0].split()[-15:] if msg_nums[0] else []
-        emails_matched = len(message_ids)
-
         for msg_num in message_ids:
             _, msg_data = mail.fetch(msg_num, "(RFC822)")
             email_message = email_lib.message_from_bytes(msg_data[0][1])

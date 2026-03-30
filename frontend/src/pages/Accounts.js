@@ -6,7 +6,7 @@ import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Trash, Pencil, Sparkle, ArrowClockwise, ClockCounterClockwise } from '@phosphor-icons/react';
+import { Plus, Trash, Pencil, Sparkle, ArrowClockwise, ClockCounterClockwise, Eye } from '@phosphor-icons/react';
 import ParserBuilder from './ParserBuilder';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -23,11 +23,15 @@ const Accounts = () => {
   const [historyAccount, setHistoryAccount] = useState(null);
   const [syncHistory, setSyncHistory] = useState([]);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [previewingId, setPreviewingId] = useState(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewData, setPreviewData] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
     account_type: 'bank',
     start_balance: 0,
     email_filter: '',
+    email_from_filter: '',
     pdf_password: ''
   });
 
@@ -57,7 +61,7 @@ const Accounts = () => {
       }
       setOpen(false);
       setEditingAccount(null);
-      setFormData({ name: '', account_type: 'bank', start_balance: 0, email_filter: '', pdf_password: '' });
+      setFormData({ name: '', account_type: 'bank', start_balance: 0, email_filter: '', email_from_filter: '', pdf_password: '' });
       loadAccounts();
     } catch (err) {
       toast.error('Failed to save account');
@@ -84,6 +88,7 @@ const Accounts = () => {
       account_type: account.account_type,
       start_balance: account.start_balance,
       email_filter: account.email_filter || '',
+      email_from_filter: account.email_from_filter || '',
       pdf_password: account.pdf_password || ''
     });
     setOpen(true);
@@ -134,6 +139,19 @@ const Accounts = () => {
     }
   };
 
+  const handlePreview = async (account) => {
+    setPreviewingId(account.id);
+    try {
+      const res = await axios.post(`${API}/accounts/${account.id}/sync-preview`);
+      setPreviewData(res.data);
+      setPreviewOpen(true);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Preview failed');
+    } finally {
+      setPreviewingId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -150,7 +168,7 @@ const Accounts = () => {
               className="themed-btn-primary focus:ring-2 focus:ring-[#5C745A]/50 rounded-lg"
               onClick={() => {
                 setEditingAccount(null);
-                setFormData({ name: '', account_type: 'bank', start_balance: 0, email_filter: '', pdf_password: '' });
+                setFormData({ name: '', account_type: 'bank', start_balance: 0, email_filter: '', email_from_filter: '', pdf_password: '' });
               }}
             >
               <Plus size={18} className="mr-2" />
@@ -203,7 +221,7 @@ const Accounts = () => {
                 />
               </div>
               <div>
-                <Label htmlFor="email_filter">Email Filter (for auto-scan)</Label>
+                <Label htmlFor="email_filter">Email Subject Filter</Label>
                 <Input
                   id="email_filter"
                   data-testid="account-email-filter-input"
@@ -211,7 +229,18 @@ const Accounts = () => {
                   onChange={e => setFormData({...formData, email_filter: e.target.value})}
                   placeholder="e.g., HDFC Bank Statement"
                 />
-                <p className="text-xs mt-1" style={{ color: 'var(--app-text-muted)' }}>Keyword to match in email subject for auto-importing statements</p>
+                <p className="text-xs mt-1" style={{ color: 'var(--app-text-muted)' }}>Keyword to match in email subject</p>
+              </div>
+              <div>
+                <Label htmlFor="email_from_filter">From Email Filter (optional)</Label>
+                <Input
+                  id="email_from_filter"
+                  data-testid="account-email-from-filter-input"
+                  value={formData.email_from_filter}
+                  onChange={e => setFormData({...formData, email_from_filter: e.target.value})}
+                  placeholder="e.g., alerts@hdfcbank.net"
+                />
+                <p className="text-xs mt-1" style={{ color: 'var(--app-text-muted)' }}>Only match emails from this sender address</p>
               </div>
               <div>
                 <Label htmlFor="pdf_password">PDF Password (for encrypted statements)</Label>
@@ -303,11 +332,23 @@ const Accounts = () => {
               )}
               {account.email_filter && (
                 <div className="mt-2 px-2 py-1 bg-blue-50 border border-blue-200 rounded text-xs" style={{ color: '#1e40af' }}>
-                  Email filter: {account.email_filter}
+                  Subject: {account.email_filter}
+                  {account.email_from_filter && <span className="ml-1 opacity-70">| From: {account.email_from_filter}</span>}
                 </div>
               )}
               {account.email_filter && (
-                <div className="mt-3 flex gap-2">
+                <div className="mt-3 flex gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    data-testid={`preview-account-${account.id}`}
+                    disabled={previewingId === account.id}
+                    onClick={() => handlePreview(account)}
+                    className="rounded-lg text-xs h-8 px-3 border"
+                    style={{ borderColor: 'var(--app-accent)', color: 'var(--app-accent)', background: 'transparent' }}
+                  >
+                    <Eye size={14} className={`mr-1.5 ${previewingId === account.id ? 'animate-pulse' : ''}`} />
+                    {previewingId === account.id ? 'Loading...' : 'Preview'}
+                  </Button>
                   <Button
                     size="sm"
                     data-testid={`sync-account-${account.id}`}
@@ -316,7 +357,7 @@ const Accounts = () => {
                     className="themed-btn-primary rounded-lg text-xs h-8 px-3"
                   >
                     <ArrowClockwise size={14} className={`mr-1.5 ${syncingId === account.id ? 'animate-spin' : ''}`} />
-                    {syncingId === account.id ? 'Syncing...' : 'Sync Email'}
+                    {syncingId === account.id ? 'Syncing...' : 'Sync'}
                   </Button>
                   <Button
                     size="sm"
@@ -453,6 +494,108 @@ const Accounts = () => {
               })
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Sync Preview Dialog */}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle style={{ color: 'var(--app-text)' }}>
+              Sync Preview — {previewData?.account_name}
+            </DialogTitle>
+          </DialogHeader>
+          {previewData && (
+            <div className="space-y-4">
+              {/* Filters used */}
+              <div className="flex gap-3 flex-wrap text-xs" style={{ color: 'var(--app-text-muted)' }}>
+                <span>Subject: <strong style={{ color: 'var(--app-text)' }}>{previewData.filter_used}</strong></span>
+                {previewData.from_filter && <span>From: <strong style={{ color: 'var(--app-text)' }}>{previewData.from_filter}</strong></span>}
+                {previewData.sync_since && <span>Since: <strong style={{ color: 'var(--app-text)' }}>{previewData.sync_since}</strong></span>}
+              </div>
+
+              {/* Summary cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: 'Emails Found', value: previewData.summary.total_emails, color: 'var(--app-text)' },
+                  { label: 'New Emails', value: previewData.summary.new_emails, color: '#5C745A' },
+                  { label: 'Already Synced', value: previewData.summary.already_synced, color: '#7CA1A6' },
+                  { label: 'New Transactions', value: previewData.summary.total_transactions, color: 'var(--app-accent)' },
+                ].map((c, i) => (
+                  <div key={i} className="rounded-lg p-3 text-center" style={{ background: 'var(--app-badge-bg)' }}>
+                    <div className="text-[10px] uppercase tracking-[0.15em]" style={{ color: 'var(--app-text-muted)' }}>{c.label}</div>
+                    <div className="text-xl font-heading mt-0.5" style={{ color: c.color }}>{c.value}</div>
+                  </div>
+                ))}
+              </div>
+              {previewData.summary.password_errors > 0 && (
+                <div className="p-2 rounded-lg bg-red-50 text-red-600 text-xs">
+                  {previewData.summary.password_errors} PDF(s) couldn't be opened — check the PDF password on this account.
+                </div>
+              )}
+
+              {/* Email list */}
+              <div className="space-y-2">
+                <h4 className="text-xs uppercase tracking-[0.15em] font-medium" style={{ color: 'var(--app-text-secondary)' }}>
+                  Emails ({previewData.emails.length})
+                </h4>
+                {previewData.emails.map((email, i) => (
+                  <div key={i} data-testid={`preview-email-${i}`}
+                    className="rounded-lg p-3 border text-sm"
+                    style={{
+                      background: email.already_synced ? 'var(--app-badge-bg)' : 'var(--app-card-bg)',
+                      borderColor: 'var(--app-card-border)',
+                      opacity: email.already_synced ? 0.6 : 1
+                    }}>
+                    <div className="flex justify-between items-start gap-2 mb-1">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate" style={{ color: 'var(--app-text)' }}>{email.subject || '(no subject)'}</div>
+                        <div className="text-xs mt-0.5" style={{ color: 'var(--app-text-muted)' }}>
+                          From: {email.from} | {email.date}
+                        </div>
+                      </div>
+                      {email.already_synced ? (
+                        <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 font-medium">SYNCED</span>
+                      ) : (
+                        <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-600 font-medium">NEW</span>
+                      )}
+                    </div>
+                    {email.pdfs.length > 0 ? (
+                      <div className="mt-2 space-y-1">
+                        {email.pdfs.map((pdf, j) => {
+                          const statusColor = pdf.parse_status === 'ok' ? 'text-green-600'
+                            : pdf.parse_status === 'password_error' ? 'text-red-500'
+                            : pdf.parse_status === 'parse_error' ? 'text-red-500'
+                            : pdf.parse_status === 'empty' ? 'text-yellow-600'
+                            : 'text-gray-400';
+                          const statusLabel = pdf.parse_status === 'ok' ? `${pdf.transactions_found} txns`
+                            : pdf.parse_status === 'password_error' ? 'wrong password'
+                            : pdf.parse_status === 'parse_error' ? 'parse failed'
+                            : pdf.parse_status === 'empty' ? '0 txns'
+                            : 'unknown';
+                          return (
+                            <div key={j} className="flex items-center justify-between text-xs pl-2 border-l-2" style={{ borderColor: 'var(--app-card-border)' }}>
+                              <span className="truncate flex-1 mr-2" style={{ color: 'var(--app-text-secondary)' }}>
+                                {pdf.filename} <span style={{ color: 'var(--app-text-muted)' }}>({pdf.size_kb} KB)</span>
+                              </span>
+                              <span className={`shrink-0 font-medium ${statusColor}`}>{statusLabel}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-xs mt-1" style={{ color: 'var(--app-text-muted)' }}>No PDF attachments</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {previewData.emails.length === 0 && (
+                <p className="text-center py-6 text-sm" style={{ color: 'var(--app-text-muted)' }}>
+                  No emails matched the filters. Try adjusting the subject filter or from filter.
+                </p>
+              )}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
