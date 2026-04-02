@@ -1178,13 +1178,12 @@ async def scan_email_for_statements(user: Dict = Depends(get_current_user)):
     if not email_config or not email_config.get("app_password"):
         raise HTTPException(status_code=400, detail="Email not configured. Go to Settings to set up email scanning.")
 
-    # Build IMAP date filter from sync_since
-    sync_since_imap = ""
+    # Parse sync_since for post-fetch filtering
+    sync_since_date = None
     if email_config.get("sync_since"):
         try:
             from datetime import datetime as dt
-            d = dt.strptime(email_config["sync_since"], "%Y-%m-%d")
-            sync_since_imap = d.strftime("%d-%b-%Y")  # e.g. "01-Jan-2024"
+            sync_since_date = dt.strptime(email_config["sync_since"], "%Y-%m-%d")
         except Exception:
             pass
 
@@ -1213,18 +1212,20 @@ async def scan_email_for_statements(user: Dict = Depends(get_current_user)):
     try:
         for account in accounts_with_filters:
             filter_text = account["email_filter"]
+            from_filter = account.get("email_from_filter", "")
             account_id = account["id"]
             account_name = account["name"]
+            from_criteria = f' FROM "{from_filter}"' if from_filter else ''
 
-            date_criteria = f' SINCE {sync_since_imap}' if sync_since_imap else ''
-            _, msg_nums = mail.search(None, f'(SUBJECT "{filter_text}"{date_criteria})')
+            # Search WITHOUT SINCE — Gmail IMAP SINCE is unreliable with compound queries
+            _, msg_nums = mail.search(None, f'(SUBJECT "{filter_text}"{from_criteria})')
             if not msg_nums[0]:
-                _, msg_nums = mail.search(None, f'(BODY "{filter_text}"{date_criteria})')
+                _, msg_nums = mail.search(None, f'(BODY "{filter_text}"{from_criteria})')
             if not msg_nums[0] and len(filter_text.split()) > 2:
                 words = [w for w in filter_text.split() if len(w) > 3][:4]
                 if words:
                     criteria = ' '.join(f'SUBJECT "{w}"' for w in words)
-                    _, msg_nums = mail.search(None, f'({criteria}{date_criteria})')
+                    _, msg_nums = mail.search(None, f'({criteria}{from_criteria})')
 
             message_ids = msg_nums[0].split() if msg_nums[0] else []
 
@@ -1234,6 +1235,16 @@ async def scan_email_for_statements(user: Dict = Depends(get_current_user)):
 
                 message_id = email_message.get("Message-ID", "")
                 email_hash = hashlib.md5(f"{message_id}_{account_id}".encode()).hexdigest()
+
+                # Post-fetch date filtering
+                if sync_since_date:
+                    try:
+                        from email.utils import parsedate_to_datetime
+                        email_dt = parsedate_to_datetime(str(email_message.get("Date", "")))
+                        if email_dt.replace(tzinfo=None) < sync_since_date:
+                            continue
+                    except Exception:
+                        pass
 
                 already_processed = await db.processed_emails.find_one({
                     "email_hash": email_hash, "user_id": uid
@@ -1312,7 +1323,7 @@ async def scan_email_for_statements(user: Dict = Depends(get_current_user)):
 
 # ─── Shared IMAP Helper ──────────────────────────────────────────────
 async def _imap_connect_and_search(email_config, account):
-    """Connect to IMAP, search emails matching account filters. Returns (mail_conn, message_ids, error_msg)"""
+    """Connect to IMAP, search emails matching account filters. Returns (mail_conn, message_ids, sync_since_date, error_msg)"""
     import imaplib
     try:
         mail = imaplib.IMAP4_SSL(email_config["imap_server"])
@@ -1331,37 +1342,34 @@ async def _imap_connect_and_search(email_config, account):
             error_msg = "Gmail requires an App Password for IMAP access. Generate one at myaccount.google.com/apppasswords (2FA must be enabled)."
         elif "authentication failed" in error_msg.lower() or "invalid credentials" in error_msg.lower():
             error_msg = "Login failed. Check your email address and App Password in Settings."
-        return None, [], error_msg
+        return None, [], None, error_msg
 
-    # Build IMAP search criteria
-    sync_since_imap = ""
+    # Parse sync_since date for post-fetch filtering (NOT in IMAP query — Gmail ignores SINCE with compound queries)
+    sync_since_date = None
     if email_config.get("sync_since"):
         try:
             from datetime import datetime as dt
-            d = dt.strptime(email_config["sync_since"], "%Y-%m-%d")
-            sync_since_imap = d.strftime("%d-%b-%Y")
+            sync_since_date = dt.strptime(email_config["sync_since"], "%Y-%m-%d")
         except Exception:
             pass
 
     filter_text = account["email_filter"]
     from_filter = account.get("email_from_filter", "")
-    date_criteria = f' SINCE {sync_since_imap}' if sync_since_imap else ''
     from_criteria = f' FROM "{from_filter}"' if from_filter else ''
 
-    # Strategy 1: Exact subject match + from + date
-    _, msg_nums = mail.search(None, f'(SUBJECT "{filter_text}"{from_criteria}{date_criteria})')
-    # Strategy 2: Body search fallback
+    # Search WITHOUT SINCE — Gmail IMAP doesn't reliably combine SINCE with SUBJECT+FROM
+    # We'll filter by date after fetching email headers instead
+    _, msg_nums = mail.search(None, f'(SUBJECT "{filter_text}"{from_criteria})')
     if not msg_nums[0]:
-        _, msg_nums = mail.search(None, f'(BODY "{filter_text}"{from_criteria}{date_criteria})')
-    # Strategy 3: Split keywords
+        _, msg_nums = mail.search(None, f'(BODY "{filter_text}"{from_criteria})')
     if not msg_nums[0] and len(filter_text.split()) > 2:
         words = [w for w in filter_text.split() if len(w) > 3][:4]
         if words:
             criteria = ' '.join(f'SUBJECT "{w}"' for w in words)
-            _, msg_nums = mail.search(None, f'({criteria}{from_criteria}{date_criteria})')
+            _, msg_nums = mail.search(None, f'({criteria}{from_criteria})')
 
-    message_ids = msg_nums[0].split() if msg_nums[0] else []  # No limit — date filter handles scope
-    return mail, message_ids, None
+    message_ids = msg_nums[0].split() if msg_nums[0] else []
+    return mail, message_ids, sync_since_date, None
 
 
 # ─── Account Email Sync Preview ──────────────────────────────────────
@@ -1383,11 +1391,13 @@ async def sync_account_preview(account_id: str, user: Dict = Depends(get_current
     if not email_config or not email_config.get("app_password"):
         raise HTTPException(status_code=400, detail="Email not configured in Settings.")
 
-    mail, message_ids, error = await _imap_connect_and_search(email_config, account)
+    mail, message_ids, sync_since_date, error = await _imap_connect_and_search(email_config, account)
     if error:
         raise HTTPException(status_code=400, detail=f"Email connection failed: {error}")
 
     previews = []
+    total_imap_results = len(message_ids)
+    skipped_by_date = 0
     try:
         for msg_num in message_ids:
             _, msg_data = mail.fetch(msg_num, "(RFC822)")
@@ -1407,6 +1417,17 @@ async def sync_account_preview(account_id: str, user: Dict = Depends(get_current
 
             from_addr = email_message.get("From", "")
             email_date = email_message.get("Date", "")
+
+            # Post-fetch date filtering (since Gmail IMAP SINCE is unreliable)
+            if sync_since_date:
+                try:
+                    from email.utils import parsedate_to_datetime
+                    email_dt = parsedate_to_datetime(email_date)
+                    if email_dt.replace(tzinfo=None) < sync_since_date:
+                        skipped_by_date += 1
+                        continue
+                except Exception:
+                    pass
 
             # Check if already processed
             already_processed = await db.processed_emails.find_one({"email_hash": email_hash, "user_id": uid})
@@ -1468,6 +1489,8 @@ async def sync_account_preview(account_id: str, user: Dict = Depends(get_current
         "from_filter": account.get("email_from_filter", ""),
         "sync_since": email_config.get("sync_since", ""),
         "summary": {
+            "total_imap_results": total_imap_results,
+            "skipped_by_date_filter": skipped_by_date,
             "total_emails": total_emails,
             "new_emails": new_emails,
             "already_synced": total_emails - new_emails,
@@ -1499,7 +1522,7 @@ async def sync_account_email(account_id: str, user: Dict = Depends(get_current_u
     if not email_config or not email_config.get("app_password"):
         raise HTTPException(status_code=400, detail="Email not configured. Go to Settings to set up email scanning.")
 
-    mail, message_ids, error = await _imap_connect_and_search(email_config, account)
+    mail, message_ids, sync_since_date, error = await _imap_connect_and_search(email_config, account)
     if error:
         await _log_sync(uid, account_id, account["name"], "failed", 0, 0, error)
         raise HTTPException(status_code=400, detail=f"Email connection failed: {error}")
@@ -1517,6 +1540,16 @@ async def sync_account_email(account_id: str, user: Dict = Depends(get_current_u
             email_hash = hashlib.md5(f"{message_id}_{account_id}".encode()).hexdigest()
             subject = str(email_message.get("Subject", ""))
             email_date = str(email_message.get("Date", ""))
+
+            # Post-fetch date filtering (Gmail IMAP SINCE is unreliable with compound queries)
+            if sync_since_date:
+                try:
+                    from email.utils import parsedate_to_datetime
+                    email_dt = parsedate_to_datetime(email_date)
+                    if email_dt.replace(tzinfo=None) < sync_since_date:
+                        continue
+                except Exception:
+                    pass
 
             already_processed = await db.processed_emails.find_one({"email_hash": email_hash, "user_id": uid})
             if already_processed:

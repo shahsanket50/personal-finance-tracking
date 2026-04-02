@@ -515,9 +515,10 @@ const Accounts = () => {
               </div>
 
               {/* Summary cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 {[
-                  { label: 'Emails Found', value: previewData.summary.total_emails, color: 'var(--app-text)' },
+                  { label: 'IMAP Results', value: previewData.summary.total_imap_results || previewData.summary.total_emails, color: 'var(--app-text-muted)' },
+                  { label: 'After Date Filter', value: previewData.summary.total_emails, color: 'var(--app-text)' },
                   { label: 'New Emails', value: previewData.summary.new_emails, color: '#5C745A' },
                   { label: 'Already Synced', value: previewData.summary.already_synced, color: '#7CA1A6' },
                   { label: 'New Transactions', value: previewData.summary.total_transactions, color: 'var(--app-accent)' },
@@ -528,6 +529,11 @@ const Accounts = () => {
                   </div>
                 ))}
               </div>
+              {previewData.summary.skipped_by_date_filter > 0 && (
+                <div className="p-2 rounded-lg text-xs" style={{ background: 'var(--app-badge-bg)', color: 'var(--app-text-secondary)' }}>
+                  {previewData.summary.skipped_by_date_filter} older email(s) filtered out by "Sync since" date ({previewData.sync_since})
+                </div>
+              )}
               {previewData.summary.password_errors > 0 && (
                 <div className="p-2 rounded-lg bg-red-50 text-red-600 text-xs">
                   {previewData.summary.password_errors} PDF(s) couldn't be opened — check the PDF password on this account.
