@@ -627,6 +627,7 @@ async def get_analytics_summary(
     category_breakdown = [
         {
             "category": category_map[cat_id]['name'],
+            "name": category_map[cat_id]['name'],
             "amount": amount,
             "color": category_map[cat_id].get('color', '#5C745A'),
             "type": category_map[cat_id]['category_type']
@@ -634,6 +635,23 @@ async def get_analytics_summary(
         for cat_id, amount in category_spending.items()
         if cat_id in category_map
     ]
+    
+    # Uncategorized spending — merge into existing "Other" if present
+    uncategorized_debit = sum(t['amount'] for t in transactions if t['transaction_type'] == 'debit' and not t.get('is_transfer') and not t.get('category_id'))
+    uncategorized_credit = sum(t['amount'] for t in transactions if t['transaction_type'] == 'credit' and not t.get('is_transfer') and not t.get('category_id'))
+    
+    if uncategorized_debit > 0:
+        existing_other = next((c for c in category_breakdown if c['category'] == 'Other' and c['type'] == 'expense'), None)
+        if existing_other:
+            existing_other['amount'] += uncategorized_debit
+        else:
+            category_breakdown.append({"category": "Other", "name": "Other", "amount": uncategorized_debit, "color": "#9E9E9E", "type": "expense"})
+    if uncategorized_credit > 0:
+        existing_other_inc = next((c for c in category_breakdown if c['category'] == 'Other Income' and c['type'] == 'income'), None)
+        if existing_other_inc:
+            existing_other_inc['amount'] += uncategorized_credit
+        else:
+            category_breakdown.append({"category": "Other Income", "name": "Other Income", "amount": uncategorized_credit, "color": "#8BC34A", "type": "income"})
     
     # Monthly trend
     monthly_data = defaultdict(lambda: {"income": 0, "expense": 0})
@@ -649,16 +667,60 @@ async def get_analytics_summary(
         {"month": month, "income": data['income'], "expense": data['expense']}
         for month, data in sorted(monthly_data.items())
     ]
-    
-    # Account balances
-    account_balances = [
-        {
-            "name": acc['name'],
-            "balance": acc['current_balance'],
-            "type": acc['account_type']
-        }
-        for acc in accounts
+
+    # Daily trend (useful for single-month view)
+    daily_data = defaultdict(lambda: {"income": 0, "expense": 0})
+    for txn in transactions:
+        if not txn.get('is_transfer', False):
+            day_key = txn['date']  # YYYY-MM-DD
+            if txn['transaction_type'] == 'credit':
+                daily_data[day_key]['income'] += txn['amount']
+            else:
+                daily_data[day_key]['expense'] += txn['amount']
+
+    daily_trend = [
+        {"day": day, "income": data['income'], "expense": data['expense']}
+        for day, data in sorted(daily_data.items())
     ]
+    
+    # Per-account credit/debit for selected period
+    account_map = {a['id']: a for a in accounts}
+    account_period = defaultdict(lambda: {"credits": 0, "debits": 0})
+    for txn in transactions:
+        if not txn.get('is_transfer', False):
+            aid = txn.get('account_id')
+            if txn['transaction_type'] == 'credit':
+                account_period[aid]['credits'] += txn['amount']
+            else:
+                account_period[aid]['debits'] += txn['amount']
+
+    account_summary = [
+        {
+            "name": account_map[aid]['name'] if aid in account_map else 'Unknown',
+            "balance": account_map[aid]['current_balance'] if aid in account_map else 0,
+            "type": account_map[aid]['account_type'] if aid in account_map else 'other',
+            "credits": data['credits'],
+            "debits": data['debits']
+        }
+        for aid, data in account_period.items()
+    ]
+
+    # Top creditors and debitors (by description, excluding transfers)
+    creditor_totals = defaultdict(float)
+    debitor_totals = defaultdict(float)
+    for txn in transactions:
+        if txn.get('is_transfer', False):
+            continue
+        desc = txn.get('description', '').strip()
+        if not desc:
+            continue
+        if txn['transaction_type'] == 'credit':
+            creditor_totals[desc] += txn['amount']
+        else:
+            debitor_totals[desc] += txn['amount']
+
+    top_creditors = sorted([{"description": d, "amount": a} for d, a in creditor_totals.items()], key=lambda x: -x['amount'])[:10]
+    top_debitors = sorted([{"description": d, "amount": a} for d, a in debitor_totals.items()], key=lambda x: -x['amount'])[:10]
     
     return {
         "total_income": total_income,
@@ -666,7 +728,11 @@ async def get_analytics_summary(
         "net_savings": total_income - total_expense,
         "category_breakdown": category_breakdown,
         "monthly_trend": monthly_trend,
-        "account_balances": account_balances
+        "daily_trend": daily_trend,
+        "account_summary": account_summary,
+        "top_creditors": top_creditors,
+        "top_debitors": top_debitors,
+        "account_balances": [{"name": a['name'], "balance": a['current_balance'], "type": a['account_type']} for a in accounts]
     }
 
 # PDF Upload endpoint
@@ -1160,7 +1226,7 @@ async def scan_email_for_statements(user: Dict = Depends(get_current_user)):
                     criteria = ' '.join(f'SUBJECT "{w}"' for w in words)
                     _, msg_nums = mail.search(None, f'({criteria}{date_criteria})')
 
-            message_ids = msg_nums[0].split()[-10:] if msg_nums[0] else []
+            message_ids = msg_nums[0].split() if msg_nums[0] else []
 
             for msg_num in message_ids:
                 _, msg_data = mail.fetch(msg_num, "(RFC822)")
@@ -1294,7 +1360,7 @@ async def _imap_connect_and_search(email_config, account):
             criteria = ' '.join(f'SUBJECT "{w}"' for w in words)
             _, msg_nums = mail.search(None, f'({criteria}{from_criteria}{date_criteria})')
 
-    message_ids = msg_nums[0].split()[-20:] if msg_nums[0] else []
+    message_ids = msg_nums[0].split() if msg_nums[0] else []  # No limit — date filter handles scope
     return mail, message_ids, None
 
 
