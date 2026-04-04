@@ -263,6 +263,165 @@ DEFAULT_CATEGORIES = [
     {"name": "Other", "category_type": "expense", "color": "#A8A29E", "is_default": True},
 ]
 
+# ═══════════════════════════════════════════════════════════════════════
+# ACCOUNTING ENGINE — Double-entry bookkeeping (Tally-like)
+# ═══════════════════════════════════════════════════════════════════════
+
+class Company(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str = ""
+    name: str
+    address: str = ""
+    gstin: str = ""
+    pan: str = ""
+    cin: str = ""
+    fy_start_month: int = 4  # April (Indian FY)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class CompanyCreate(BaseModel):
+    name: str
+    address: str = ""
+    gstin: str = ""
+    pan: str = ""
+    cin: str = ""
+    fy_start_month: int = 4
+
+class AccountGroup(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str = ""
+    company_id: str = ""
+    name: str
+    parent_id: Optional[str] = None
+    nature: str  # asset, liability, income, expense
+    is_default: bool = True
+    sort_order: int = 0
+
+class Ledger(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str = ""
+    company_id: str = ""
+    name: str
+    group_id: str
+    opening_balance: float = 0.0
+    opening_type: str = "dr"  # dr or cr
+    address: str = ""
+    gstin: str = ""
+    linked_account_id: Optional[str] = None  # Bridge to Finance Tracker account
+    linked_category_id: Optional[str] = None  # Bridge to Finance Tracker category
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class LedgerCreate(BaseModel):
+    name: str
+    group_id: str
+    opening_balance: float = 0.0
+    opening_type: str = "dr"
+    address: str = ""
+    gstin: str = ""
+
+class VoucherEntry(BaseModel):
+    ledger_id: str
+    debit: float = 0.0
+    credit: float = 0.0
+
+class Voucher(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str = ""
+    company_id: str = ""
+    voucher_number: str = ""
+    voucher_type: str  # payment, receipt, journal, contra, sales, purchase, credit_note, debit_note
+    date: str
+    narration: str = ""
+    reference: str = ""
+    entries: List[Dict] = []
+    linked_transaction_id: Optional[str] = None  # Bridge to Finance Tracker
+    is_posted: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class VoucherCreate(BaseModel):
+    voucher_type: str
+    date: str
+    narration: str = ""
+    reference: str = ""
+    entries: List[VoucherEntry]
+
+# Indian Standard Chart of Accounts (Tally-compatible)
+DEFAULT_ACCOUNT_GROUPS = [
+    # Primary groups
+    {"name": "Capital Account", "parent": None, "nature": "liability", "sort": 1},
+    {"name": "Loans (Liability)", "parent": None, "nature": "liability", "sort": 2},
+    {"name": "Current Liabilities", "parent": None, "nature": "liability", "sort": 3},
+    {"name": "Fixed Assets", "parent": None, "nature": "asset", "sort": 4},
+    {"name": "Investments", "parent": None, "nature": "asset", "sort": 5},
+    {"name": "Current Assets", "parent": None, "nature": "asset", "sort": 6},
+    {"name": "Direct Income", "parent": None, "nature": "income", "sort": 7},
+    {"name": "Indirect Income", "parent": None, "nature": "income", "sort": 8},
+    {"name": "Direct Expenses", "parent": None, "nature": "expense", "sort": 9},
+    {"name": "Indirect Expenses", "parent": None, "nature": "expense", "sort": 10},
+    # Sub-groups under Current Assets
+    {"name": "Bank Accounts", "parent": "Current Assets", "nature": "asset", "sort": 1},
+    {"name": "Cash-in-Hand", "parent": "Current Assets", "nature": "asset", "sort": 2},
+    {"name": "Sundry Debtors", "parent": "Current Assets", "nature": "asset", "sort": 3},
+    {"name": "Deposits (Asset)", "parent": "Current Assets", "nature": "asset", "sort": 4},
+    {"name": "Stock-in-Hand", "parent": "Current Assets", "nature": "asset", "sort": 5},
+    {"name": "Loans & Advances (Asset)", "parent": "Current Assets", "nature": "asset", "sort": 6},
+    # Sub-groups under Current Liabilities
+    {"name": "Sundry Creditors", "parent": "Current Liabilities", "nature": "liability", "sort": 1},
+    {"name": "Duties & Taxes", "parent": "Current Liabilities", "nature": "liability", "sort": 2},
+    {"name": "Provisions", "parent": "Current Liabilities", "nature": "liability", "sort": 3},
+    # Sub-groups under Loans (Liability)
+    {"name": "Bank OD A/c", "parent": "Loans (Liability)", "nature": "liability", "sort": 1},
+    {"name": "Secured Loans", "parent": "Loans (Liability)", "nature": "liability", "sort": 2},
+    {"name": "Unsecured Loans", "parent": "Loans (Liability)", "nature": "liability", "sort": 3},
+    # Sub-groups under Direct/Indirect
+    {"name": "Sales Account", "parent": "Direct Income", "nature": "income", "sort": 1},
+    {"name": "Purchase Account", "parent": "Direct Expenses", "nature": "expense", "sort": 1},
+]
+
+async def _init_default_company_and_coa(user_id: str):
+    """Initialize a default company and Chart of Accounts for a user"""
+    existing = await db.companies.find_one({"user_id": user_id}, {"_id": 0})
+    if existing:
+        return existing["id"]
+    
+    company = Company(user_id=user_id, name="My Business")
+    doc = company.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.companies.insert_one(doc)
+    company_id = company.id
+    
+    # Create account groups
+    group_map = {}
+    for g in DEFAULT_ACCOUNT_GROUPS:
+        parent_id = group_map.get(g["parent"]) if g["parent"] else None
+        grp = AccountGroup(
+            user_id=user_id, company_id=company_id,
+            name=g["name"], parent_id=parent_id,
+            nature=g["nature"], is_default=True, sort_order=g["sort"]
+        )
+        await db.account_groups.insert_one(grp.model_dump())
+        group_map[g["name"]] = grp.id
+    
+    # Create default ledgers
+    defaults = [
+        ("Cash", "Cash-in-Hand", 0, "dr"),
+        ("Profit & Loss A/c", "Direct Income", 0, "cr"),
+    ]
+    for name, group_name, bal, bal_type in defaults:
+        gid = group_map.get(group_name)
+        if gid:
+            ledger = Ledger(user_id=user_id, company_id=company_id, name=name, group_id=gid, opening_balance=bal, opening_type=bal_type)
+            doc = ledger.model_dump()
+            doc['created_at'] = doc['created_at'].isoformat()
+            await db.ledgers.insert_one(doc)
+    
+    return company_id
+
+
+
 # Helper to init default categories for a user
 async def _init_default_categories(user_id: str):
     for cat_data in DEFAULT_CATEGORIES:
@@ -987,6 +1146,469 @@ async def import_csv(
         return {"message": f"Imported {imported_count} transactions"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error importing CSV: {str(e)}")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# ACCOUNTING API ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════
+
+# ─── Company ──────────────────────────────────────────────────────────
+@api_router.get("/company")
+async def get_company(user: Dict = Depends(get_current_user)):
+    company_id = await _init_default_company_and_coa(user["user_id"])
+    company = await db.companies.find_one({"id": company_id, "user_id": user["user_id"]}, {"_id": 0})
+    return company
+
+@api_router.put("/company")
+async def update_company(data: CompanyCreate, user: Dict = Depends(get_current_user)):
+    company = await db.companies.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    await db.companies.update_one(
+        {"id": company["id"], "user_id": user["user_id"]},
+        {"$set": data.model_dump()}
+    )
+    return {"message": "Company updated"}
+
+# ─── Account Groups (Chart of Accounts) ──────────────────────────────
+@api_router.get("/account-groups")
+async def get_account_groups(user: Dict = Depends(get_current_user)):
+    await _init_default_company_and_coa(user["user_id"])
+    groups = await db.account_groups.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(200)
+    return groups
+
+@api_router.post("/account-groups")
+async def create_account_group(data: Dict, user: Dict = Depends(get_current_user)):
+    company = await db.companies.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    if not company:
+        raise HTTPException(status_code=400, detail="No company set up")
+    grp = AccountGroup(
+        user_id=user["user_id"], company_id=company["id"],
+        name=data["name"], parent_id=data.get("parent_id"),
+        nature=data["nature"], is_default=False, sort_order=99
+    )
+    await db.account_groups.insert_one(grp.model_dump())
+    return {"id": grp.id, "message": "Group created"}
+
+# ─── Ledgers ─────────────────────────────────────────────────────────
+@api_router.get("/ledgers")
+async def get_ledgers(user: Dict = Depends(get_current_user)):
+    await _init_default_company_and_coa(user["user_id"])
+    ledgers = await db.ledgers.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(500)
+    return ledgers
+
+@api_router.post("/ledgers")
+async def create_ledger(data: LedgerCreate, user: Dict = Depends(get_current_user)):
+    company = await db.companies.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    if not company:
+        raise HTTPException(status_code=400, detail="No company set up")
+    ledger = Ledger(**data.model_dump(), user_id=user["user_id"], company_id=company["id"])
+    doc = ledger.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.ledgers.insert_one(doc)
+    return {"id": ledger.id, "name": ledger.name, "message": "Ledger created"}
+
+@api_router.put("/ledgers/{ledger_id}")
+async def update_ledger(ledger_id: str, data: LedgerCreate, user: Dict = Depends(get_current_user)):
+    result = await db.ledgers.update_one(
+        {"id": ledger_id, "user_id": user["user_id"]},
+        {"$set": data.model_dump()}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Ledger not found")
+    return {"message": "Ledger updated"}
+
+@api_router.delete("/ledgers/{ledger_id}")
+async def delete_ledger(ledger_id: str, user: Dict = Depends(get_current_user)):
+    # Check if any vouchers reference this ledger
+    has_vouchers = await db.vouchers.find_one({"user_id": user["user_id"], "entries.ledger_id": ledger_id})
+    if has_vouchers:
+        raise HTTPException(status_code=400, detail="Cannot delete ledger with existing voucher entries")
+    result = await db.ledgers.delete_one({"id": ledger_id, "user_id": user["user_id"]})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Ledger not found")
+    return {"message": "Ledger deleted"}
+
+# ─── Vouchers ────────────────────────────────────────────────────────
+@api_router.get("/vouchers")
+async def get_vouchers(
+    voucher_type: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user: Dict = Depends(get_current_user)
+):
+    query = {"user_id": user["user_id"]}
+    if voucher_type:
+        query["voucher_type"] = voucher_type
+    if start_date:
+        query["date"] = query.get("date", {})
+        query["date"]["$gte"] = start_date
+    if end_date:
+        query.setdefault("date", {})
+        query["date"]["$lte"] = end_date
+    vouchers = await db.vouchers.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
+    return vouchers
+
+@api_router.post("/vouchers")
+async def create_voucher(data: VoucherCreate, user: Dict = Depends(get_current_user)):
+    uid = user["user_id"]
+    company = await db.companies.find_one({"user_id": uid}, {"_id": 0})
+    if not company:
+        raise HTTPException(status_code=400, detail="No company set up")
+    
+    # Validate debit == credit
+    total_debit = sum(e.debit for e in data.entries)
+    total_credit = sum(e.credit for e in data.entries)
+    if abs(total_debit - total_credit) > 0.01:
+        raise HTTPException(status_code=400, detail=f"Voucher not balanced: Dr {total_debit} != Cr {total_credit}")
+    
+    # Auto voucher number
+    count = await db.vouchers.count_documents({"user_id": uid, "voucher_type": data.voucher_type})
+    type_prefix = {"payment": "PMT", "receipt": "RCT", "journal": "JRN", "contra": "CNT",
+                   "sales": "SAL", "purchase": "PUR", "credit_note": "CN", "debit_note": "DN"}
+    prefix = type_prefix.get(data.voucher_type, "VCH")
+    voucher_number = f"{prefix}-{count + 1:04d}"
+    
+    entries_dicts = [e.model_dump() for e in data.entries]
+    voucher = Voucher(
+        user_id=uid, company_id=company["id"],
+        voucher_number=voucher_number, voucher_type=data.voucher_type,
+        date=data.date, narration=data.narration, reference=data.reference,
+        entries=entries_dicts
+    )
+    doc = voucher.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.vouchers.insert_one(doc)
+    
+    # Auto-bridge: create Finance Tracker transaction if voucher involves a bank/cash ledger
+    await _voucher_to_transaction(uid, voucher)
+    
+    return {"id": voucher.id, "voucher_number": voucher_number, "message": "Voucher created"}
+
+@api_router.delete("/vouchers/{voucher_id}")
+async def delete_voucher(voucher_id: str, user: Dict = Depends(get_current_user)):
+    voucher = await db.vouchers.find_one({"id": voucher_id, "user_id": user["user_id"]}, {"_id": 0})
+    if not voucher:
+        raise HTTPException(status_code=404, detail="Voucher not found")
+    await db.vouchers.delete_one({"id": voucher_id, "user_id": user["user_id"]})
+    # Also remove linked transaction if any
+    if voucher.get("linked_transaction_id"):
+        await db.transactions.delete_one({"id": voucher["linked_transaction_id"], "user_id": user["user_id"]})
+    return {"message": "Voucher deleted"}
+
+# ─── Trial Balance ───────────────────────────────────────────────────
+@api_router.get("/trial-balance")
+async def get_trial_balance(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user: Dict = Depends(get_current_user)
+):
+    uid = user["user_id"]
+    await _init_default_company_and_coa(uid)
+    
+    # Get all ledgers
+    ledgers = await db.ledgers.find({"user_id": uid}, {"_id": 0}).to_list(500)
+    groups = await db.account_groups.find({"user_id": uid}, {"_id": 0}).to_list(200)
+    group_map = {g["id"]: g for g in groups}
+    
+    # Get all vouchers in date range
+    vquery = {"user_id": uid, "is_posted": True}
+    if start_date or end_date:
+        vquery["date"] = {}
+        if start_date:
+            vquery["date"]["$gte"] = start_date
+        if end_date:
+            vquery["date"]["$lte"] = end_date
+    vouchers = await db.vouchers.find(vquery, {"_id": 0}).to_list(10000)
+    
+    # Compute balances per ledger
+    ledger_totals = defaultdict(lambda: {"debit": 0.0, "credit": 0.0})
+    for v in vouchers:
+        for entry in v.get("entries", []):
+            lid = entry.get("ledger_id")
+            ledger_totals[lid]["debit"] += entry.get("debit", 0)
+            ledger_totals[lid]["credit"] += entry.get("credit", 0)
+    
+    # Build trial balance rows
+    rows = []
+    total_dr = 0.0
+    total_cr = 0.0
+    for ledger in ledgers:
+        lid = ledger["id"]
+        totals = ledger_totals.get(lid, {"debit": 0, "credit": 0})
+        opening = ledger.get("opening_balance", 0)
+        if ledger.get("opening_type") == "dr":
+            totals["debit"] += opening
+        else:
+            totals["credit"] += opening
+        
+        net = totals["debit"] - totals["credit"]
+        closing_dr = net if net > 0 else 0
+        closing_cr = abs(net) if net < 0 else 0
+        
+        if closing_dr > 0.01 or closing_cr > 0.01:
+            group = group_map.get(ledger.get("group_id"), {})
+            rows.append({
+                "ledger_id": lid,
+                "ledger_name": ledger["name"],
+                "group_name": group.get("name", ""),
+                "nature": group.get("nature", ""),
+                "debit": round(closing_dr, 2),
+                "credit": round(closing_cr, 2),
+            })
+            total_dr += closing_dr
+            total_cr += closing_cr
+    
+    rows.sort(key=lambda r: (r["nature"], r["group_name"], r["ledger_name"]))
+    
+    return {
+        "rows": rows,
+        "total_debit": round(total_dr, 2),
+        "total_credit": round(total_cr, 2),
+        "is_balanced": abs(total_dr - total_cr) < 0.01
+    }
+
+# ─── Daybook ─────────────────────────────────────────────────────────
+@api_router.get("/daybook")
+async def get_daybook(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user: Dict = Depends(get_current_user)
+):
+    uid = user["user_id"]
+    query = {"user_id": uid}
+    if start_date or end_date:
+        query["date"] = {}
+        if start_date:
+            query["date"]["$gte"] = start_date
+        if end_date:
+            query["date"]["$lte"] = end_date
+    vouchers = await db.vouchers.find(query, {"_id": 0}).sort("date", -1).to_list(500)
+    
+    # Enrich with ledger names
+    ledger_ids = set()
+    for v in vouchers:
+        for e in v.get("entries", []):
+            ledger_ids.add(e.get("ledger_id"))
+    ledgers = await db.ledgers.find({"user_id": uid, "id": {"$in": list(ledger_ids)}}, {"_id": 0}).to_list(500)
+    ledger_map = {l["id"]: l["name"] for l in ledgers}
+    
+    for v in vouchers:
+        for e in v.get("entries", []):
+            e["ledger_name"] = ledger_map.get(e.get("ledger_id"), "Unknown")
+    
+    return vouchers
+
+# ─── Bridge: Auto-sync between Finance Tracker <-> Accounting ────────
+async def _voucher_to_transaction(uid, voucher):
+    """When a voucher is created in Accounting view, auto-create Finance Tracker transaction if applicable"""
+    entries = voucher.entries if isinstance(voucher.entries, list) else []
+    if len(entries) != 2:
+        return  # Only bridge simple 2-leg vouchers
+    
+    # Find which ledger is a bank/cash account (linked to Finance Tracker account)
+    for i, entry in enumerate(entries):
+        ledger = await db.ledgers.find_one({"id": entry.get("ledger_id", entry.get("ledger_id")), "user_id": uid}, {"_id": 0})
+        if ledger and ledger.get("linked_account_id"):
+            other = entries[1 - i]
+            amount = entry.get("credit", 0) or entry.get("debit", 0)
+            txn_type = "debit" if entry.get("credit", 0) > 0 else "credit"
+            txn = Transaction(
+                user_id=uid, account_id=ledger["linked_account_id"],
+                date=voucher.date if isinstance(voucher.date, str) else voucher.date,
+                description=voucher.narration or f"Voucher {voucher.voucher_number}",
+                amount=amount, transaction_type=txn_type
+            )
+            # Try to find linked category from the other ledger
+            other_ledger = await db.ledgers.find_one({"id": other.get("ledger_id"), "user_id": uid}, {"_id": 0})
+            if other_ledger and other_ledger.get("linked_category_id"):
+                txn.category_id = other_ledger["linked_category_id"]
+            doc = txn.model_dump()
+            doc['created_at'] = doc['created_at'].isoformat()
+            await db.transactions.insert_one(doc)
+            # Update account balance
+            bal_change = -amount if txn_type == "debit" else amount
+            await db.accounts.update_one({"id": ledger["linked_account_id"], "user_id": uid}, {"$inc": {"current_balance": bal_change}})
+            # Link voucher to transaction
+            await db.vouchers.update_one({"id": voucher.id}, {"$set": {"linked_transaction_id": txn.id}})
+            return
+
+async def _transaction_to_voucher(uid, txn, account, category=None):
+    """When a transaction is created in Finance Tracker, auto-create a voucher in Accounting"""
+    company = await db.companies.find_one({"user_id": uid}, {"_id": 0})
+    if not company:
+        return
+    
+    # Find or create ledger for the account
+    account_ledger = await db.ledgers.find_one({"linked_account_id": account["id"], "user_id": uid}, {"_id": 0})
+    if not account_ledger:
+        # Auto-create a ledger for this bank/cash account
+        bank_group = await db.account_groups.find_one({"user_id": uid, "name": "Bank Accounts"}, {"_id": 0})
+        if account["account_type"] == "cash":
+            bank_group = await db.account_groups.find_one({"user_id": uid, "name": "Cash-in-Hand"}, {"_id": 0})
+        if not bank_group:
+            return
+        account_ledger = Ledger(
+            user_id=uid, company_id=company["id"],
+            name=account["name"], group_id=bank_group["id"],
+            linked_account_id=account["id"]
+        )
+        doc = account_ledger.model_dump()
+        doc['created_at'] = doc['created_at'].isoformat()
+        await db.ledgers.insert_one(doc)
+        account_ledger = doc
+    
+    # Find or create ledger for the category
+    category_ledger = None
+    if category:
+        category_ledger = await db.ledgers.find_one({"linked_category_id": category["id"], "user_id": uid}, {"_id": 0})
+        if not category_ledger:
+            # Map category type to group
+            if category["category_type"] == "expense":
+                cat_group = await db.account_groups.find_one({"user_id": uid, "name": "Indirect Expenses"}, {"_id": 0})
+            else:
+                cat_group = await db.account_groups.find_one({"user_id": uid, "name": "Direct Income"}, {"_id": 0})
+            if cat_group:
+                category_ledger = Ledger(
+                    user_id=uid, company_id=company["id"],
+                    name=category["name"], group_id=cat_group["id"],
+                    linked_category_id=category["id"]
+                )
+                doc = category_ledger.model_dump()
+                doc['created_at'] = doc['created_at'].isoformat()
+                await db.ledgers.insert_one(doc)
+                category_ledger = doc
+
+    if not category_ledger:
+        # Use a generic "Suspense" or "Miscellaneous" ledger
+        category_ledger = await db.ledgers.find_one({"user_id": uid, "name": "Suspense Account"}, {"_id": 0})
+        if not category_ledger:
+            misc_group = await db.account_groups.find_one({"user_id": uid, "name": "Indirect Expenses"}, {"_id": 0})
+            if misc_group:
+                category_ledger = Ledger(user_id=uid, company_id=company["id"], name="Suspense Account", group_id=misc_group["id"])
+                doc = category_ledger.model_dump()
+                doc['created_at'] = doc['created_at'].isoformat()
+                await db.ledgers.insert_one(doc)
+                category_ledger = doc
+            else:
+                return
+
+    # Build voucher entries (double-entry)
+    acc_lid = account_ledger["id"]
+    cat_lid = category_ledger["id"]
+    
+    if txn.transaction_type == "debit":
+        # Money going out: Debit expense, Credit bank
+        entries = [
+            {"ledger_id": cat_lid, "debit": txn.amount, "credit": 0},
+            {"ledger_id": acc_lid, "debit": 0, "credit": txn.amount}
+        ]
+        voucher_type = "payment"
+    else:
+        # Money coming in: Debit bank, Credit income
+        entries = [
+            {"ledger_id": acc_lid, "debit": txn.amount, "credit": 0},
+            {"ledger_id": cat_lid, "debit": 0, "credit": txn.amount}
+        ]
+        voucher_type = "receipt"
+    
+    count = await db.vouchers.count_documents({"user_id": uid, "voucher_type": voucher_type})
+    prefix = "PMT" if voucher_type == "payment" else "RCT"
+    
+    voucher = Voucher(
+        user_id=uid, company_id=company["id"],
+        voucher_number=f"{prefix}-{count + 1:04d}",
+        voucher_type=voucher_type, date=txn.date,
+        narration=txn.description, entries=entries,
+        linked_transaction_id=txn.id
+    )
+    doc = voucher.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    await db.vouchers.insert_one(doc)
+
+# ─── Migrate existing transactions to vouchers ───────────────────────
+@api_router.post("/migrate-to-accounting")
+async def migrate_transactions_to_vouchers(user: Dict = Depends(get_current_user)):
+    uid = user["user_id"]
+    await _init_default_company_and_coa(uid)
+    
+    # Get all transactions that don't have a linked voucher
+    all_txns = await db.transactions.find({"user_id": uid}, {"_id": 0}).to_list(10000)
+    linked_txn_ids = set()
+    existing_vouchers = await db.vouchers.find({"user_id": uid, "linked_transaction_id": {"$ne": None}}, {"_id": 0, "linked_transaction_id": 1}).to_list(10000)
+    for v in existing_vouchers:
+        if v.get("linked_transaction_id"):
+            linked_txn_ids.add(v["linked_transaction_id"])
+    
+    unlinked = [t for t in all_txns if t["id"] not in linked_txn_ids and not t.get("is_transfer")]
+    migrated = 0
+    
+    for txn_data in unlinked:
+        account = await db.accounts.find_one({"id": txn_data["account_id"], "user_id": uid}, {"_id": 0})
+        if not account:
+            continue
+        category = None
+        if txn_data.get("category_id"):
+            category = await db.categories.find_one({"id": txn_data["category_id"], "user_id": uid}, {"_id": 0})
+        
+        # Create a Transaction-like object for the bridge function
+        txn_obj = Transaction(**{k: txn_data[k] for k in ["user_id", "account_id", "date", "description", "amount", "transaction_type"] if k in txn_data})
+        txn_obj.id = txn_data["id"]
+        txn_obj.category_id = txn_data.get("category_id")
+        await _transaction_to_voucher(uid, txn_obj, account, category)
+        migrated += 1
+    
+    return {"message": f"Migrated {migrated} transactions to accounting vouchers", "migrated": migrated}
+
+# ─── Ledger Statement ────────────────────────────────────────────────
+@api_router.get("/ledger-statement/{ledger_id}")
+async def get_ledger_statement(
+    ledger_id: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user: Dict = Depends(get_current_user)
+):
+    uid = user["user_id"]
+    ledger = await db.ledgers.find_one({"id": ledger_id, "user_id": uid}, {"_id": 0})
+    if not ledger:
+        raise HTTPException(status_code=404, detail="Ledger not found")
+    
+    vquery = {"user_id": uid, "entries.ledger_id": ledger_id, "is_posted": True}
+    if start_date or end_date:
+        vquery["date"] = {}
+        if start_date:
+            vquery["date"]["$gte"] = start_date
+        if end_date:
+            vquery["date"]["$lte"] = end_date
+    vouchers = await db.vouchers.find(vquery, {"_id": 0}).sort("date", 1).to_list(5000)
+    
+    entries = []
+    running = ledger.get("opening_balance", 0) * (1 if ledger.get("opening_type") == "dr" else -1)
+    
+    for v in vouchers:
+        for e in v.get("entries", []):
+            if e.get("ledger_id") == ledger_id:
+                dr = e.get("debit", 0)
+                cr = e.get("credit", 0)
+                running += dr - cr
+                entries.append({
+                    "date": v["date"],
+                    "voucher_number": v["voucher_number"],
+                    "voucher_type": v["voucher_type"],
+                    "narration": v.get("narration", ""),
+                    "debit": dr,
+                    "credit": cr,
+                    "balance": round(running, 2)
+                })
+    
+    return {
+        "ledger_name": ledger["name"],
+        "opening_balance": ledger.get("opening_balance", 0),
+        "opening_type": ledger.get("opening_type", "dr"),
+        "entries": entries,
+        "closing_balance": round(running, 2)
+    }
+
 
 # ─── AI Categorization Endpoint ───────────────────────────────────────
 @api_router.post("/ai-categorize")
