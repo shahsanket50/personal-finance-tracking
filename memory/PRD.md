@@ -1,7 +1,8 @@
-# MoneyInsights - Personal Finance Tracker
+# MoneyInsights - Personal Finance Tracker + Accounting Engine
 
 ## Problem Statement
 Track personal finances across 4-5 credit cards, 2-3 bank accounts, investments, and cash transactions. Upload bank/credit card statements (PDF/CSV) and analyze spending trends, categories, and investment patterns.
+Additionally, provide a Tally-like double-entry bookkeeping system with auto-bridge so users don't enter data twice.
 
 ## Architecture
 - **Frontend**: React, TailwindCSS, Shadcn UI, Phosphor Icons v2, Recharts v3
@@ -14,33 +15,62 @@ Track personal finances across 4-5 credit cards, 2-3 bank accounts, investments,
 - **Theming**: CSS custom properties with 5 themes
 
 ## What's Implemented
+
+### Finance Tracker (View 1)
 - [x] Google OAuth login/signup
 - [x] Protected routes — all API endpoints require auth
 - [x] Multi-tenant data isolation
-- [x] 5 Themes: Light, Dark, Forest, Ocean, Sand — picker in Settings
-- [x] **Merged Dashboard**: Summary cards + Period selector (All/Month/FY/Custom) + Top Expenses bar + Expense Breakdown donut with legend + Monthly/Daily Trend + Top Spends + Top Income Sources + Accounts with credits/debits
-- [x] Accounts CRUD with email filter, from-email filter, PDF password
-- [x] **Sync Preview** — dry-run preview showing matched emails, PDFs, parse status
-- [x] Account-level email sync with auto-categorization post-import
+- [x] 5 Themes: Light, Dark, Forest, Ocean, Sand
+- [x] Merged Dashboard with analytics, period selector, charts, legends
+- [x] Accounts CRUD with email filter, PDF password, parser config
+- [x] Sync Preview (dry-run) + Account email sync with auto-categorization
 - [x] Sync History dialog per account
-- [x] Cascade delete account (transactions, sync history, processed emails)
-- [x] **Transaction filters**: Type pills, search, Account/Category/Date filters
-- [x] Transactions CRUD with balance updates
+- [x] Transaction CRUD with filters (type, search, account, category, date)
 - [x] Categories (defaults + custom) with color coding
 - [x] Upload page (PDF/CSV)
 - [x] Dynamic Parser Builder (4 auto-detection strategies)
-- [x] AI auto-categorization (Gemini) — auto after sync, manual button
+- [x] AI auto-categorization (Gemini)
 - [x] Backup/Restore (JSON)
-- [x] Settings: Email Config (IMAP, sync_since date), Backup, Themes, APK, Reset All Data
-- [x] Transfer creation + enhanced auto-detection (±1 day, confidence scoring)
+- [x] Settings: Email Config, Backup, Themes, APK, Reset All Data
+- [x] Transfer creation + enhanced auto-detection
 - [x] PWA setup
 
+### Accounting Engine (View 2 — Tally-like)
+- [x] Company management (name, GSTIN, PAN, FY start)
+- [x] Indian Standard Chart of Accounts (24 default groups)
+- [x] Account Groups CRUD (hierarchical tree with nature: asset/liability/income/expense)
+- [x] Ledgers CRUD (linked to groups, opening balance, linked_account_id/linked_category_id)
+- [x] Vouchers CRUD (payment, receipt, journal, contra, sales, purchase, credit/debit note)
+- [x] Double-entry validation (debit must equal credit)
+- [x] Auto voucher numbering (PMT-0001, RCT-0001, etc.)
+- [x] Trial Balance (date-filtered, balanced check)
+- [x] Daybook (date-filtered journal of all entries with ledger names)
+- [x] Ledger Statement (per-ledger transaction history with running balance)
+- [x] Profit & Loss Statement (income vs expenses, net profit)
+- [x] Balance Sheet (assets vs liabilities + net profit, balanced check)
+- [x] **Auto-Bridge**: Transaction → Voucher (on create from all flows: manual, PDF, CSV, email sync)
+- [x] **Auto-Bridge**: Voucher → Transaction (for bank/cash ledger vouchers)
+- [x] Migration endpoint (convert historical transactions to vouchers)
+- [x] Reset All Data cleans up accounting collections too
+
+### Dual-View Frontend System
+- [x] Sidebar navigation switches between Finance Tracker and Accounting views
+- [x] "Switch to Accounting/Finance Tracker" toggle in sidebar
+- [x] 6 Accounting pages: Dashboard, Chart of Accounts, Vouchers, Daybook, Trial Balance, Reports
+- [x] Shared Settings page between both views
+
 ## Key DB Collections
-- `accounts`: {name, type, balance, parser_config, email_filter, email_from_filter, pdf_password, user_id}
+### Finance Tracker
+- `accounts`: {name, type, balance, parser_config, email_filter, pdf_password, user_id}
 - `transactions`: {date, amount, description, type, category, account_id, user_id, is_transfer}
 - `categories`: {name, category_type, color, user_id}
-- `sync_history`: {account_id, user_id, status, imported, skipped, files, filter_used, emails_matched}
-- `email_configs`: {user_id, imap_server, email_address, app_password, sync_since}
+- `sync_history`, `email_configs`, `processed_emails`
+
+### Accounting Engine
+- `companies`: {name, address, gstin, pan, fy_start_month, user_id}
+- `account_groups`: {name, parent_id, nature, is_default, sort_order, company_id, user_id}
+- `ledgers`: {name, group_id, opening_balance, opening_type, linked_account_id, linked_category_id, company_id, user_id}
+- `vouchers`: {voucher_number, voucher_type, date, narration, entries: [{ledger_id, debit, credit}], linked_transaction_id, company_id, user_id}
 
 ## Future/Backlog
 - CSV parsing support (P2)
