@@ -101,11 +101,22 @@ const Transactions = () => {
   };
 
   const getAccountName = (id) => accounts.find(a => a.id === id)?.name || 'Unknown';
-  const getCategoryName = (id) => categories.find(c => c.id === id)?.name || 'Uncategorized';
+  const getCategoryName = (id) => {
+    if (!id) return null;
+    return categories.find(c => c.id === id)?.name || null;
+  };
+  const getCategoryColor = (id) => {
+    if (!id) return null;
+    return categories.find(c => c.id === id)?.color || null;
+  };
+
+  const uncategorizedCount = transactions.filter(t => !t.category_id || !categories.find(c => c.id === t.category_id)).length;
 
   const handleAICategorize = async () => {
     setCategorizing(true);
     try {
+      // First fix orphaned category references
+      await axios.post(`${API}/categories/fix-orphaned`);
       const res = await axios.post(`${API}/ai-categorize`, []);
       toast.success(res.data.message);
       loadData();
@@ -168,6 +179,9 @@ const Transactions = () => {
             className="themed-btn-primary rounded-lg text-sm h-9">
             <Sparkle size={16} className="mr-1.5" />
             {categorizing ? 'Categorizing...' : 'AI Categorize'}
+            {!categorizing && uncategorizedCount > 0 && (
+              <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] bg-white/20 font-bold">{uncategorizedCount}</span>
+            )}
           </Button>
           <Button data-testid="detect-transfers-btn" onClick={detectTransfers}
             className="themed-badge text-[#1C1917] hover:bg-[#E5E2DC] border border-[var(--app-card-border)] rounded-lg text-sm h-9">
@@ -382,7 +396,17 @@ const Transactions = () => {
                         {txn.description}
                         {txn.is_transfer && <span className="ml-2 text-[10px] px-1.5 py-0.5 bg-[#78716C] text-white rounded">Transfer</span>}
                       </td>
-                      <td className="p-3 text-sm" style={{ color: 'var(--app-text-secondary)' }}>{getCategoryName(txn.category_id)}</td>
+                      <td className="p-3 text-sm" style={{ color: 'var(--app-text-secondary)' }}>
+                        {getCategoryName(txn.category_id) ? (
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium"
+                            style={{ background: getCategoryColor(txn.category_id) ? `${getCategoryColor(txn.category_id)}15` : 'var(--app-accent-light)', color: getCategoryColor(txn.category_id) || 'var(--app-accent-text)' }}>
+                            <span className="w-1.5 h-1.5 rounded-full" style={{ background: getCategoryColor(txn.category_id) || 'var(--app-accent)' }} />
+                            {getCategoryName(txn.category_id)}
+                          </span>
+                        ) : (
+                          <span className="text-xs italic" style={{ color: 'var(--app-text-muted)' }}>Uncategorized</span>
+                        )}
+                      </td>
                       <td className="p-3 text-sm text-right font-medium" style={{ color: txn.transaction_type === 'credit' ? '#5C745A' : '#C06B52' }}>
                         {txn.transaction_type === 'credit' ? '+' : '-'}₹{txn.amount.toFixed(2)}
                       </td>

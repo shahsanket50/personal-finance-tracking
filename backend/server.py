@@ -591,7 +591,28 @@ async def restore_default_categories(user: Dict = Depends(get_current_user)):
             doc['created_at'] = doc['created_at'].isoformat()
             await db.categories.insert_one(doc)
             restored += 1
-    return {"message": f"Restored {restored} default categories", "restored": restored}
+    # Clean up orphaned category references in transactions
+    valid_cat_ids = set()
+    async for c in db.categories.find({"user_id": uid}, {"id": 1, "_id": 0}):
+        valid_cat_ids.add(c["id"])
+    orphaned = await db.transactions.update_many(
+        {"user_id": uid, "category_id": {"$ne": None, "$nin": list(valid_cat_ids)}},
+        {"$set": {"category_id": None}}
+    )
+    return {"message": f"Restored {restored} default categories, cleared {orphaned.modified_count} orphaned references", "restored": restored, "orphaned_cleared": orphaned.modified_count}
+
+@api_router.post("/categories/fix-orphaned")
+async def fix_orphaned_categories(user: Dict = Depends(get_current_user)):
+    """Clear category_id from transactions that reference deleted categories"""
+    uid = user["user_id"]
+    valid_cat_ids = set()
+    async for c in db.categories.find({"user_id": uid}, {"id": 1, "_id": 0}):
+        valid_cat_ids.add(c["id"])
+    result = await db.transactions.update_many(
+        {"user_id": uid, "category_id": {"$ne": None, "$nin": list(valid_cat_ids)}},
+        {"$set": {"category_id": None}}
+    )
+    return {"message": f"Cleared {result.modified_count} orphaned category references", "cleared": result.modified_count}
 
 # Transaction endpoints
 @api_router.post("/transactions", response_model=Transaction)

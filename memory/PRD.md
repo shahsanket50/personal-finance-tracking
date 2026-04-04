@@ -23,14 +23,16 @@ Additionally, provide a Tally-like double-entry bookkeeping system with auto-bri
 - [x] Email sync with preview/dry-run + auto-categorization
 - [x] Transaction CRUD with filters (type, search, account, category, date)
 - [x] **48 default categories** (10 income + 38 expense — comprehensive Indian finance set)
-- [x] Auto-restore missing default categories
+- [x] Auto-restore missing default categories + orphaned reference cleanup
 - [x] **Improved AI categorization** with Indian bank-aware prompt + fuzzy matching
+- [x] Category badges with color dots in Transactions view
+- [x] AI Categorize button shows uncategorized count badge
 - [x] Upload page (PDF/CSV), Dynamic Parser Builder
 - [x] Backup/Restore (JSON)
 - [x] Settings — 3-tab layout: Finance Tracker / Accounting / Appearance & Data
 
 ### Accounting Engine (View 2 — Tally-like)
-- [x] Company management (name, GSTIN, PAN, CIN) — moved to Settings > Accounting
+- [x] Company management (name, GSTIN, PAN, CIN) — in Settings > Accounting
 - [x] **Financial Year selector** — auto-computed from transaction/voucher date ranges
 - [x] Indian Standard Chart of Accounts (24 default groups)
 - [x] Ledgers CRUD, Vouchers CRUD (8 types), double-entry validation
@@ -39,7 +41,7 @@ Additionally, provide a Tally-like double-entry bookkeeping system with auto-bri
 - [x] Auto-Bridge: Transaction → Voucher (all creation flows)
 - [x] Migration endpoint, Reset cleans accounting data
 
-### Settings Page (Refactored)
+### Settings Page (3 Tabs)
 - Tab 1 — **Finance Tracker**: Email config, Categories restore
 - Tab 2 — **Accounting**: Company details, FY selector, Sync to Accounting
 - Tab 3 — **Appearance & Data**: Themes, Backup/Restore, Mobile App, Danger Zone
