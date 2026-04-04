@@ -1066,9 +1066,27 @@ async def upload_statement(
                 pass
             imported_count += 1
         
+        # Auto-categorize newly imported transactions
+        categorized_count = 0
+        if imported_count > 0:
+            try:
+                cats = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(200)
+                if len(cats) == 0:
+                    await _init_default_categories(uid)
+                    cats = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(200)
+                uncat = await db.transactions.find(
+                    {"user_id": uid, "account_id": account_id, "category_id": None, "is_transfer": False},
+                    {"_id": 0}
+                ).to_list(500)
+                if uncat:
+                    categorized_count = await _ai_categorize_batch(uid, uncat, cats)
+            except Exception as e:
+                logger.warning(f"Auto-categorization after upload failed: {e}")
+
         return {
-            "message": f"Successfully imported {imported_count} transactions",
+            "message": f"Successfully imported {imported_count} transactions" + (f", auto-categorized {categorized_count}" if categorized_count > 0 else ""),
             "imported_count": imported_count,
+            "categorized_count": categorized_count,
             "total_found": len(parsed_transactions),
             "duplicates_skipped": len(parsed_transactions) - imported_count
         }
@@ -1254,7 +1272,24 @@ async def import_csv(
                         pass
                 imported_count += 1
         
-        return {"message": f"Imported {imported_count} transactions"}
+        # Auto-categorize newly imported transactions
+        categorized_count = 0
+        if imported_count > 0:
+            try:
+                cats = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(200)
+                if len(cats) == 0:
+                    await _init_default_categories(uid)
+                    cats = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(200)
+                uncat = await db.transactions.find(
+                    {"user_id": uid, "account_id": account_id, "category_id": None, "is_transfer": False},
+                    {"_id": 0}
+                ).to_list(500)
+                if uncat:
+                    categorized_count = await _ai_categorize_batch(uid, uncat, cats)
+            except Exception as e:
+                logger.warning(f"Auto-categorization after CSV import failed: {e}")
+
+        return {"message": f"Imported {imported_count} transactions" + (f", auto-categorized {categorized_count}" if categorized_count > 0 else "")}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error importing CSV: {str(e)}")
 
@@ -1929,37 +1964,24 @@ async def get_ledger_statement(
 
 
 # ─── AI Categorization Endpoint ───────────────────────────────────────
-@api_router.post("/ai-categorize")
-async def ai_categorize_transactions(
-    transaction_ids: List[str] = [],
-    user: Dict = Depends(get_current_user)
-):
-    """Use AI to auto-categorize uncategorized transactions"""
-    uid = user["user_id"]
-
-    # Ensure categories exist
-    categories = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(200)
-    if len(categories) == 0:
-        await _init_default_categories(uid)
-        categories = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(200)
-
-    query = {"user_id": uid, "category_id": None, "is_transfer": False}
-    if transaction_ids:
-        query["id"] = {"$in": transaction_ids}
-
-    txns = await db.transactions.find(query, {"_id": 0}).to_list(500)
-    if not txns:
-        return {"message": "No uncategorized transactions found", "categorized_count": 0}
+# ─── Shared AI Categorization Helper ──────────────────────────────────
+async def _ai_categorize_batch(uid: str, txns: list, categories: list) -> int:
+    """Categorize a batch of transactions using AI. Returns count categorized."""
+    if not txns or not categories:
+        return 0
 
     category_names = [c['name'] for c in categories if c['name'] != 'Transfer']
-    category_map = {c['name'].lower(): c['id'] for c in categories}
+    category_map = {c['name'].lower().strip(): c['id'] for c in categories}
+
+    income_cats = ', '.join([c['name'] for c in categories if c['category_type'] == 'income'])
+    expense_cats = ', '.join([c['name'] for c in categories if c['category_type'] == 'expense' and c['name'] != 'Transfer'])
 
     descriptions = [{"id": t["id"], "desc": t["description"], "amount": t["amount"], "type": t["transaction_type"]} for t in txns[:100]]
 
-    CATEGORIZATION_PROMPT = f"""You are an expert Indian personal finance categorizer. Categorize each transaction into EXACTLY ONE of these categories:
+    prompt = f"""You are an expert Indian personal finance categorizer. Categorize each transaction into EXACTLY ONE of these categories:
 
-INCOME categories: {', '.join([c for c in category_names if any(cat['name'] == c and cat['category_type'] == 'income' for cat in categories)])}
-EXPENSE categories: {', '.join([c for c in category_names if any(cat['name'] == c and cat['category_type'] == 'expense' for cat in categories)])}
+INCOME categories: {income_cats}
+EXPENSE categories: {expense_cats}
 
 RULES:
 1. For CREDIT (income) transactions, always pick from INCOME categories
@@ -1974,51 +1996,73 @@ Return ONLY a valid JSON array. No markdown, no explanation. Each object: {{"id"
 Transactions to categorize:
 {descriptions}"""
 
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+    import json as json_mod
+
+    chat = LlmChat(
+        api_key=os.environ.get("EMERGENT_LLM_KEY", ""),
+        session_id=f"categorize_{uid}_{uuid.uuid4().hex[:8]}",
+        system_message="You are a financial transaction categorizer for Indian bank/credit card statements. Return only valid JSON arrays. No markdown formatting."
+    )
+    chat.with_model("gemini", "gemini-2.5-flash")
+
+    response = await chat.send_message(UserMessage(text=prompt))
+
+    json_text = response.strip()
+    if "```json" in json_text:
+        json_text = json_text.split("```json")[1].split("```")[0].strip()
+    elif "```" in json_text:
+        json_text = json_text.split("```")[1].split("```")[0].strip()
+
+    categorizations = json_mod.loads(json_text)
+
+    categorized_count = 0
+    for item in categorizations:
+        txn_id = item.get("id")
+        cat_name = item.get("category", "").lower().strip()
+        cat_id = category_map.get(cat_name)
+        if not cat_id:
+            for k, v in category_map.items():
+                if cat_name in k or k in cat_name:
+                    cat_id = v
+                    break
+        if txn_id and cat_id:
+            result = await db.transactions.update_one(
+                {"id": txn_id, "user_id": uid},
+                {"$set": {"category_id": cat_id}}
+            )
+            if result.modified_count > 0:
+                categorized_count += 1
+
+    return categorized_count
+
+@api_router.post("/ai-categorize")
+async def ai_categorize_transactions(
+    transaction_ids: List[str] = [],
+    user: Dict = Depends(get_current_user)
+):
+    """Use AI to auto-categorize uncategorized transactions"""
+    uid = user["user_id"]
+
+    categories = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(200)
+    if len(categories) == 0:
+        await _init_default_categories(uid)
+        categories = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(200)
+
+    query = {"user_id": uid, "category_id": None, "is_transfer": False}
+    if transaction_ids:
+        query["id"] = {"$in": transaction_ids}
+
+    txns = await db.transactions.find(query, {"_id": 0}).to_list(500)
+    if not txns:
+        return {"message": "No uncategorized transactions found", "categorized_count": 0}
+
     try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
-        import json as json_mod
-
-        chat = LlmChat(
-            api_key=os.environ.get("EMERGENT_LLM_KEY", ""),
-            session_id=f"categorize_{uid}_{uuid.uuid4().hex[:8]}",
-            system_message="You are a financial transaction categorizer for Indian bank/credit card statements. Return only valid JSON arrays. No markdown formatting."
-        )
-        chat.with_model("gemini", "gemini-2.5-flash")
-
-        response = await chat.send_message(UserMessage(text=CATEGORIZATION_PROMPT))
-
-        json_text = response.strip()
-        if "```json" in json_text:
-            json_text = json_text.split("```json")[1].split("```")[0].strip()
-        elif "```" in json_text:
-            json_text = json_text.split("```")[1].split("```")[0].strip()
-
-        categorizations = json_mod.loads(json_text)
-
-        categorized_count = 0
-        for item in categorizations:
-            txn_id = item.get("id")
-            cat_name = item.get("category", "").lower().strip()
-            cat_id = category_map.get(cat_name)
-            if not cat_id:
-                # Fuzzy match — try partial match
-                for k, v in category_map.items():
-                    if cat_name in k or k in cat_name:
-                        cat_id = v
-                        break
-            if txn_id and cat_id:
-                result = await db.transactions.update_one(
-                    {"id": txn_id, "user_id": uid},
-                    {"$set": {"category_id": cat_id}}
-                )
-                if result.modified_count > 0:
-                    categorized_count += 1
-
+        categorized_count = await _ai_categorize_batch(uid, txns, categories)
         return {
             "message": f"Categorized {categorized_count} of {len(txns)} transactions",
             "categorized_count": categorized_count,
             "total_uncategorized": len(txns),
-            "prompt_used": CATEGORIZATION_PROMPT[:500] + "..."
         }
     except Exception as e:
         logger.error(f"AI categorization error: {str(e)}")
@@ -2288,10 +2332,28 @@ async def scan_email_for_statements(user: Dict = Depends(get_current_user)):
     finally:
         mail.logout()
 
+    # Auto-categorize all newly imported uncategorized transactions
+    categorized_count = 0
+    if total_imported > 0:
+        try:
+            categories = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(200)
+            if len(categories) == 0:
+                await _init_default_categories(uid)
+                categories = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(200)
+            uncategorized = await db.transactions.find(
+                {"user_id": uid, "category_id": None, "is_transfer": False},
+                {"_id": 0}
+            ).to_list(500)
+            if uncategorized:
+                categorized_count = await _ai_categorize_batch(uid, uncategorized, categories)
+        except Exception as e:
+            logger.warning(f"Auto-categorization after email-scan failed: {e}")
+
     return {
-        "message": f"Scan complete. Imported {total_imported} transactions, skipped {total_skipped} already-processed emails.",
+        "message": f"Scan complete. Imported {total_imported} transactions, skipped {total_skipped} already-processed emails." + (f" Auto-categorized {categorized_count}." if categorized_count > 0 else ""),
         "total_imported": total_imported,
         "total_skipped": total_skipped,
+        "categorized_count": categorized_count,
         "details": results
     }
 
@@ -2664,44 +2726,16 @@ async def sync_account_email(account_id: str, user: Dict = Depends(get_current_u
     categorized_count = 0
     if total_imported > 0:
         try:
+            categories = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(200)
+            if len(categories) == 0:
+                await _init_default_categories(uid)
+                categories = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(200)
             uncategorized = await db.transactions.find(
                 {"user_id": uid, "account_id": account_id, "category_id": None, "is_transfer": False},
                 {"_id": 0}
             ).to_list(500)
             if uncategorized:
-                categories = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(100)
-                category_names = [c['name'] for c in categories if c['name'] != 'Transfer']
-                category_map = {c['name'].lower(): c['id'] for c in categories}
-                descriptions = [{"id": t["id"], "desc": t["description"], "amount": t["amount"], "type": t["transaction_type"]} for t in uncategorized[:100]]
-
-                prompt = f"""Categorize the following financial transactions into one of these categories: {', '.join(category_names)}.
-Return ONLY a JSON array with objects having "id" and "category" fields. No explanation.
-Transactions:
-{[{"id": d["id"], "description": d["desc"], "amount": d["amount"], "type": d["type"]} for d in descriptions]}"""
-
-                from emergentintegrations.llm.chat import LlmChat, UserMessage
-                import json as json_mod
-                chat = LlmChat(
-                    api_key=os.environ.get("EMERGENT_LLM_KEY", ""),
-                    session_id=f"auto_cat_{uid}_{uuid.uuid4().hex[:8]}",
-                    system_message="You are a financial transaction categorizer. Return only valid JSON."
-                )
-                chat.with_model("gemini", "gemini-2.5-flash")
-                response = await chat.send_message(UserMessage(text=prompt))
-                json_text = response.strip()
-                if "```json" in json_text:
-                    json_text = json_text.split("```json")[1].split("```")[0].strip()
-                elif "```" in json_text:
-                    json_text = json_text.split("```")[1].split("```")[0].strip()
-                categorizations = json_mod.loads(json_text)
-                for item in categorizations:
-                    txn_id = item.get("id")
-                    cat_name = item.get("category", "").lower()
-                    cat_id = category_map.get(cat_name)
-                    if txn_id and cat_id:
-                        result = await db.transactions.update_one({"id": txn_id, "user_id": uid}, {"$set": {"category_id": cat_id}})
-                        if result.modified_count > 0:
-                            categorized_count += 1
+                categorized_count = await _ai_categorize_batch(uid, uncategorized, categories)
         except Exception as e:
             logger.warning(f"Auto-categorization after sync failed: {e}")
 
