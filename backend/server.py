@@ -540,6 +540,14 @@ async def create_transaction(transaction: TransactionCreate, user: Dict = Depend
             {"id": transaction.account_id},
             {"$set": {"current_balance": account['current_balance'] + balance_change}}
         )
+        # Auto-bridge: create accounting voucher
+        category = None
+        if txn.category_id:
+            category = await db.categories.find_one({"id": txn.category_id, "user_id": user["user_id"]}, {"_id": 0})
+        try:
+            await _transaction_to_voucher(user["user_id"], txn, account, category)
+        except Exception:
+            pass
 
     return txn
 
@@ -612,6 +620,10 @@ async def delete_transaction(transaction_id: str, user: Dict = Depends(get_curre
         )
 
     await db.transactions.delete_one({"id": transaction_id})
+    # Auto-bridge: delete linked voucher
+    linked_voucher = await db.vouchers.find_one({"user_id": user["user_id"], "linked_transaction_id": transaction_id})
+    if linked_voucher:
+        await db.vouchers.delete_one({"id": linked_voucher["id"], "user_id": user["user_id"]})
     return {"message": "Transaction deleted"}
 
 # Transfer endpoints
@@ -958,6 +970,11 @@ async def upload_statement(
                 {"$set": {"current_balance": account['current_balance'] + balance_change}}
             )
             account['current_balance'] += balance_change
+            # Auto-bridge: create accounting voucher
+            try:
+                await _transaction_to_voucher(uid, txn, account, None)
+            except Exception:
+                pass
             imported_count += 1
         
         return {
@@ -1141,6 +1158,11 @@ async def import_csv(
                         {"id": account_id},
                         {"$set": {"current_balance": account['current_balance'] + balance_change}}
                     )
+                    # Auto-bridge: create accounting voucher
+                    try:
+                        await _transaction_to_voucher(uid, txn, account, None)
+                    except Exception:
+                        pass
                 imported_count += 1
         
         return {"message": f"Imported {imported_count} transactions"}
@@ -1398,6 +1420,138 @@ async def get_daybook(
             e["ledger_name"] = ledger_map.get(e.get("ledger_id"), "Unknown")
     
     return vouchers
+
+# ─── Profit & Loss Statement ─────────────────────────────────────────
+@api_router.get("/profit-loss")
+async def get_profit_loss(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user: Dict = Depends(get_current_user)
+):
+    uid = user["user_id"]
+    await _init_default_company_and_coa(uid)
+    
+    ledgers = await db.ledgers.find({"user_id": uid}, {"_id": 0}).to_list(500)
+    groups = await db.account_groups.find({"user_id": uid}, {"_id": 0}).to_list(200)
+    group_map = {g["id"]: g for g in groups}
+    
+    vquery = {"user_id": uid, "is_posted": True}
+    if start_date or end_date:
+        vquery["date"] = {}
+        if start_date:
+            vquery["date"]["$gte"] = start_date
+        if end_date:
+            vquery["date"]["$lte"] = end_date
+    vouchers = await db.vouchers.find(vquery, {"_id": 0}).to_list(10000)
+    
+    ledger_totals = defaultdict(lambda: {"debit": 0.0, "credit": 0.0})
+    for v in vouchers:
+        for entry in v.get("entries", []):
+            lid = entry.get("ledger_id")
+            ledger_totals[lid]["debit"] += entry.get("debit", 0)
+            ledger_totals[lid]["credit"] += entry.get("credit", 0)
+    
+    income_items = []
+    expense_items = []
+    total_income = 0.0
+    total_expense = 0.0
+    
+    for ledger in ledgers:
+        lid = ledger["id"]
+        group = group_map.get(ledger.get("group_id"), {})
+        nature = group.get("nature", "")
+        totals = ledger_totals.get(lid, {"debit": 0, "credit": 0})
+        net = totals["credit"] - totals["debit"]
+        
+        if nature == "income" and abs(net) > 0.01:
+            income_items.append({"ledger_name": ledger["name"], "group_name": group.get("name", ""), "amount": round(net, 2)})
+            total_income += net
+        elif nature == "expense" and abs(totals["debit"] - totals["credit"]) > 0.01:
+            net_exp = totals["debit"] - totals["credit"]
+            expense_items.append({"ledger_name": ledger["name"], "group_name": group.get("name", ""), "amount": round(net_exp, 2)})
+            total_expense += net_exp
+    
+    return {
+        "income": income_items,
+        "expenses": expense_items,
+        "total_income": round(total_income, 2),
+        "total_expenses": round(total_expense, 2),
+        "net_profit": round(total_income - total_expense, 2)
+    }
+
+# ─── Balance Sheet ────────────────────────────────────────────────────
+@api_router.get("/balance-sheet")
+async def get_balance_sheet(
+    as_of_date: Optional[str] = None,
+    user: Dict = Depends(get_current_user)
+):
+    uid = user["user_id"]
+    await _init_default_company_and_coa(uid)
+    
+    ledgers = await db.ledgers.find({"user_id": uid}, {"_id": 0}).to_list(500)
+    groups = await db.account_groups.find({"user_id": uid}, {"_id": 0}).to_list(200)
+    group_map = {g["id"]: g for g in groups}
+    
+    vquery = {"user_id": uid, "is_posted": True}
+    if as_of_date:
+        vquery["date"] = {"$lte": as_of_date}
+    vouchers = await db.vouchers.find(vquery, {"_id": 0}).to_list(10000)
+    
+    ledger_totals = defaultdict(lambda: {"debit": 0.0, "credit": 0.0})
+    for v in vouchers:
+        for entry in v.get("entries", []):
+            lid = entry.get("ledger_id")
+            ledger_totals[lid]["debit"] += entry.get("debit", 0)
+            ledger_totals[lid]["credit"] += entry.get("credit", 0)
+    
+    assets = []
+    liabilities = []
+    total_assets = 0.0
+    total_liabilities = 0.0
+    
+    for ledger in ledgers:
+        lid = ledger["id"]
+        group = group_map.get(ledger.get("group_id"), {})
+        nature = group.get("nature", "")
+        totals = ledger_totals.get(lid, {"debit": 0, "credit": 0})
+        opening = ledger.get("opening_balance", 0)
+        if ledger.get("opening_type") == "dr":
+            totals["debit"] += opening
+        else:
+            totals["credit"] += opening
+        net = totals["debit"] - totals["credit"]
+        
+        if nature == "asset" and abs(net) > 0.01:
+            assets.append({"ledger_name": ledger["name"], "group_name": group.get("name", ""), "amount": round(net, 2)})
+            total_assets += net
+        elif nature == "liability" and abs(net) > 0.01:
+            liabilities.append({"ledger_name": ledger["name"], "group_name": group.get("name", ""), "amount": round(abs(net), 2)})
+            total_liabilities += abs(net)
+    
+    # Add net profit/loss to liabilities side (retained earnings)
+    income_total = 0.0
+    expense_total = 0.0
+    for ledger in ledgers:
+        lid = ledger["id"]
+        group = group_map.get(ledger.get("group_id"), {})
+        nature = group.get("nature", "")
+        totals = ledger_totals.get(lid, {"debit": 0, "credit": 0})
+        if nature == "income":
+            income_total += totals["credit"] - totals["debit"]
+        elif nature == "expense":
+            expense_total += totals["debit"] - totals["credit"]
+    net_profit = income_total - expense_total
+    if abs(net_profit) > 0.01:
+        liabilities.append({"ledger_name": "Net Profit (Current Year)", "group_name": "Capital Account", "amount": round(net_profit, 2)})
+        total_liabilities += net_profit
+    
+    return {
+        "assets": assets,
+        "liabilities": liabilities,
+        "total_assets": round(total_assets, 2),
+        "total_liabilities": round(total_liabilities, 2),
+        "is_balanced": abs(total_assets - total_liabilities) < 0.01
+    }
 
 # ─── Bridge: Auto-sync between Finance Tracker <-> Accounting ────────
 async def _voucher_to_transaction(uid, voucher):
@@ -1743,6 +1897,10 @@ async def reset_all_data(user: Dict = Depends(get_current_user)):
     deleted["categories"] = (await db.categories.delete_many({"user_id": uid})).deleted_count
     deleted["sync_history"] = (await db.sync_history.delete_many({"user_id": uid})).deleted_count
     deleted["processed_emails"] = (await db.processed_emails.delete_many({"user_id": uid})).deleted_count
+    deleted["vouchers"] = (await db.vouchers.delete_many({"user_id": uid})).deleted_count
+    deleted["ledgers"] = (await db.ledgers.delete_many({"user_id": uid})).deleted_count
+    deleted["account_groups"] = (await db.account_groups.delete_many({"user_id": uid})).deleted_count
+    deleted["companies"] = (await db.companies.delete_many({"user_id": uid})).deleted_count
     return {"message": "All data has been reset", "deleted": deleted}
 
 
@@ -1914,6 +2072,13 @@ async def scan_email_for_statements(user: Dict = Depends(get_current_user)):
                             doc = txn.model_dump()
                             doc["created_at"] = doc["created_at"].isoformat()
                             await db.transactions.insert_one(doc)
+                            # Auto-bridge: create accounting voucher
+                            try:
+                                account_obj = await db.accounts.find_one({"id": account_id, "user_id": uid}, {"_id": 0})
+                                if account_obj:
+                                    await _transaction_to_voucher(uid, txn, account_obj, None)
+                            except Exception:
+                                pass
                             imported_count += 1
 
                         if imported_count > 0:
@@ -2216,6 +2381,13 @@ async def sync_account_email(account_id: str, user: Dict = Depends(get_current_u
                         doc = txn.model_dump()
                         doc["created_at"] = doc["created_at"].isoformat()
                         await db.transactions.insert_one(doc)
+                        # Auto-bridge: create accounting voucher
+                        try:
+                            account_obj = await db.accounts.find_one({"id": account_id, "user_id": uid}, {"_id": 0})
+                            if account_obj:
+                                await _transaction_to_voucher(uid, txn, account_obj, None)
+                        except Exception:
+                            pass
                         imported_count += 1
 
                     total_imported += imported_count

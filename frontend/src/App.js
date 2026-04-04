@@ -10,15 +10,34 @@ import Transactions from './pages/Transactions';
 import Upload from './pages/Upload';
 import Categories from './pages/Categories';
 import Settings from './pages/Settings';
-import { House, CreditCard, ArrowsLeftRight, UploadSimple, Tag, SignOut, List, Gear } from '@phosphor-icons/react';
+import AccountingDashboard from './pages/AccountingDashboard';
+import ChartOfAccounts from './pages/ChartOfAccounts';
+import Vouchers from './pages/Vouchers';
+import Daybook from './pages/Daybook';
+import TrialBalance from './pages/TrialBalance';
+import Reports from './pages/Reports';
+import {
+  House, CreditCard, ArrowsLeftRight, UploadSimple, Tag, SignOut, List, Gear,
+  Buildings, TreeStructure, Receipt, BookOpen, Scales, ChartLine, ArrowsClockwise
+} from '@phosphor-icons/react';
 import './App.css';
 
-const NAV_ITEMS = [
+const TRACKER_NAV = [
   { path: '/', label: 'Dashboard', icon: House },
   { path: '/accounts', label: 'Accounts', icon: CreditCard },
   { path: '/transactions', label: 'Transactions', icon: ArrowsLeftRight },
   { path: '/upload', label: 'Upload', icon: UploadSimple },
   { path: '/categories', label: 'Categories', icon: Tag },
+  { path: '/settings', label: 'Settings', icon: Gear },
+];
+
+const ACCOUNTING_NAV = [
+  { path: '/accounting', label: 'Dashboard', icon: Buildings },
+  { path: '/accounting/chart', label: 'Chart of Accounts', icon: TreeStructure },
+  { path: '/accounting/vouchers', label: 'Vouchers', icon: Receipt },
+  { path: '/accounting/daybook', label: 'Daybook', icon: BookOpen },
+  { path: '/accounting/trial-balance', label: 'Trial Balance', icon: Scales },
+  { path: '/accounting/reports', label: 'Reports', icon: ChartLine },
   { path: '/settings', label: 'Settings', icon: Gear },
 ];
 
@@ -44,6 +63,13 @@ function ProtectedRoute({ children }) {
 function AppLayout() {
   const { user, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const location = useLocation();
+
+  const isAccountingView = location.pathname.startsWith('/accounting');
+  const navItems = isAccountingView ? ACCOUNTING_NAV : TRACKER_NAV;
+  const viewLabel = isAccountingView ? 'Accounting' : 'Finance Tracker';
+  const switchPath = isAccountingView ? '/' : '/accounting';
+  const switchLabel = isAccountingView ? 'Finance Tracker' : 'Accounting';
 
   return (
     <div className="flex h-screen" style={{ background: 'var(--app-bg)' }}>
@@ -51,13 +77,14 @@ function AppLayout() {
       <aside className="hidden lg:flex flex-col w-64 border-r" style={{ background: 'var(--app-sidebar)', borderColor: 'var(--app-sidebar-border)' }}>
         <div className="p-5 border-b" style={{ borderColor: 'var(--app-sidebar-border)' }}>
           <h1 className="text-lg font-bold tracking-tight" style={{ color: 'var(--app-text)' }}>MoneyInsights</h1>
+          <p className="text-[10px] font-medium mt-0.5 uppercase tracking-wider" style={{ color: 'var(--app-text-muted)' }}>{viewLabel}</p>
         </div>
         <nav className="flex-1 py-3 px-3 space-y-1">
-          {NAV_ITEMS.map(item => (
+          {navItems.map(item => (
             <NavLink
               key={item.path}
               to={item.path}
-              end={item.path === '/'}
+              end={item.path === '/' || item.path === '/accounting'}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors`
               }
@@ -65,12 +92,28 @@ function AppLayout() {
                 background: isActive ? 'var(--app-nav-active-bg)' : 'transparent',
                 color: isActive ? 'var(--app-nav-active-text)' : 'var(--app-nav-text)',
               })}
-              data-testid={`nav-${item.label.toLowerCase()}`}
+              data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
             >
               <item.icon size={20} />
               {item.label}
             </NavLink>
           ))}
+
+          {/* View Switcher */}
+          <div className="pt-2 mt-2 border-t" style={{ borderColor: 'var(--app-sidebar-border)' }}>
+            <NavLink
+              to={switchPath}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all hover:opacity-80"
+              style={{
+                background: isAccountingView ? '#5C745A12' : '#7CA1A612',
+                color: isAccountingView ? '#5C745A' : '#7CA1A6',
+              }}
+              data-testid="view-switcher"
+            >
+              <ArrowsClockwise size={20} />
+              Switch to {switchLabel}
+            </NavLink>
+          </div>
         </nav>
         {user && (
           <div className="p-3 border-t" style={{ borderColor: 'var(--app-sidebar-border)' }}>
@@ -103,7 +146,10 @@ function AppLayout() {
       {/* Mobile Header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 h-14 border-b"
         style={{ background: 'var(--app-mobile-header)', borderColor: 'var(--app-sidebar-border)' }}>
-        <h1 className="text-lg font-bold" style={{ color: 'var(--app-text)' }}>MoneyInsights</h1>
+        <div>
+          <h1 className="text-lg font-bold" style={{ color: 'var(--app-text)' }}>MoneyInsights</h1>
+          <p className="text-[9px] font-medium uppercase tracking-wider -mt-0.5" style={{ color: 'var(--app-text-muted)' }}>{viewLabel}</p>
+        </div>
         <div className="flex items-center gap-2">
           <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2" style={{ color: 'var(--app-text-secondary)' }} data-testid="mobile-menu-btn">
             <List size={24} />
@@ -119,11 +165,11 @@ function AppLayout() {
             style={{ background: 'var(--app-sidebar)', borderColor: 'var(--app-sidebar-border)' }}
             onClick={e => e.stopPropagation()}>
             <nav className="py-3 px-3 space-y-1">
-              {NAV_ITEMS.map(item => (
+              {navItems.map(item => (
                 <NavLink
                   key={item.path}
                   to={item.path}
-                  end={item.path === '/'}
+                  end={item.path === '/' || item.path === '/accounting'}
                   onClick={() => setMobileMenuOpen(false)}
                   className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
                   style={({ isActive }) => ({
@@ -135,6 +181,17 @@ function AppLayout() {
                   {item.label}
                 </NavLink>
               ))}
+              <div className="pt-2 mt-2 border-t" style={{ borderColor: 'var(--app-sidebar-border)' }}>
+                <NavLink
+                  to={switchPath}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium"
+                  style={{ color: isAccountingView ? '#5C745A' : '#7CA1A6' }}
+                >
+                  <ArrowsClockwise size={20} />
+                  Switch to {switchLabel}
+                </NavLink>
+              </div>
             </nav>
             {user && (
               <div className="px-3 pt-3 border-t" style={{ borderColor: 'var(--app-sidebar-border)' }}>
@@ -151,6 +208,7 @@ function AppLayout() {
       <main className="flex-1 overflow-y-auto lg:pt-0 pt-14">
         <div className="p-6 max-w-7xl mx-auto">
           <Routes>
+            {/* Finance Tracker Routes */}
             <Route path="/" element={<Dashboard />} />
             <Route path="/accounts" element={<Accounts />} />
             <Route path="/transactions" element={<Transactions />} />
@@ -158,6 +216,13 @@ function AppLayout() {
             <Route path="/analytics" element={<Navigate to="/" replace />} />
             <Route path="/categories" element={<Categories />} />
             <Route path="/settings" element={<Settings />} />
+            {/* Accounting Routes */}
+            <Route path="/accounting" element={<AccountingDashboard />} />
+            <Route path="/accounting/chart" element={<ChartOfAccounts />} />
+            <Route path="/accounting/vouchers" element={<Vouchers />} />
+            <Route path="/accounting/daybook" element={<Daybook />} />
+            <Route path="/accounting/trial-balance" element={<TrialBalance />} />
+            <Route path="/accounting/reports" element={<Reports />} />
           </Routes>
         </div>
       </main>
