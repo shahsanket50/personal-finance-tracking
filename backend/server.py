@@ -2249,13 +2249,23 @@ async def scan_email_for_statements(user: Dict = Depends(get_current_user)):
 
                 # Post-fetch date filtering
                 if sync_since_date:
+                    skip = False
                     try:
                         from email.utils import parsedate_to_datetime
                         email_dt = parsedate_to_datetime(str(email_message.get("Date", "")))
                         if email_dt.replace(tzinfo=None) < sync_since_date:
-                            continue
+                            skip = True
                     except Exception:
                         pass
+                    if not skip:
+                        raw_subj = email_message.get("Subject", "")
+                        decoded_parts = decode_header(raw_subj)
+                        subj_str = ""
+                        for sp, enc in decoded_parts:
+                            subj_str += sp.decode(enc or "utf-8", errors="replace") if isinstance(sp, bytes) else str(sp)
+                        skip = _is_subject_before_date(subj_str, sync_since_date)
+                    if skip:
+                        continue
 
                 already_processed = await db.processed_emails.find_one({
                     "email_hash": email_hash, "user_id": uid
@@ -2357,6 +2367,61 @@ async def scan_email_for_statements(user: Dict = Depends(get_current_user)):
         "details": results
     }
 
+# ─── Statement Date Extraction from Subject ──────────────────────────
+def _is_subject_before_date(subject: str, cutoff_date) -> bool:
+    """Check if an email subject contains a statement period that's before the cutoff date.
+    Matches patterns like: 'Oct-2022', 'Mar 2025', 'October 2022', '03-2024', '2023-04'
+    """
+    import re
+    from datetime import datetime as dt
+
+    MONTH_MAP = {
+        'jan': 1, 'january': 1, 'feb': 2, 'february': 2, 'mar': 3, 'march': 3,
+        'apr': 4, 'april': 4, 'may': 5, 'jun': 6, 'june': 6,
+        'jul': 7, 'july': 7, 'aug': 8, 'august': 8, 'sep': 9, 'september': 9,
+        'oct': 10, 'october': 10, 'nov': 11, 'november': 11, 'dec': 12, 'december': 12,
+    }
+    subject_lower = subject.lower()
+
+    # Pattern 1: "Oct-2022", "Mar 2025", "October-2024", "Sep 2023"
+    match = re.search(r'(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)[- /]?(20\d{2})', subject_lower)
+    if match:
+        month = MONTH_MAP.get(match.group(1))
+        year = int(match.group(2))
+        if month and year:
+            try:
+                statement_date = dt(year, month, 1)
+                if statement_date < cutoff_date:
+                    return True
+            except Exception:
+                pass
+
+    # Pattern 2: "2022-10", "2024-03" (ISO-ish)
+    match = re.search(r'(20\d{2})[- /](0[1-9]|1[0-2])', subject_lower)
+    if match:
+        year = int(match.group(1))
+        month = int(match.group(2))
+        try:
+            statement_date = dt(year, month, 1)
+            if statement_date < cutoff_date:
+                return True
+        except Exception:
+            pass
+
+    # Pattern 3: "03-2024", "12/2023"
+    match = re.search(r'(0[1-9]|1[0-2])[- /](20\d{2})', subject_lower)
+    if match:
+        month = int(match.group(1))
+        year = int(match.group(2))
+        try:
+            statement_date = dt(year, month, 1)
+            if statement_date < cutoff_date:
+                return True
+        except Exception:
+            pass
+
+    return False
+
 # ─── Shared IMAP Helper ──────────────────────────────────────────────
 async def _imap_connect_and_search(email_config, account):
     """Connect to IMAP, search emails matching account filters. Returns (mail_conn, message_ids, sync_since_date, error_msg)"""
@@ -2456,14 +2521,21 @@ async def sync_account_preview(account_id: str, user: Dict = Depends(get_current
 
             # Post-fetch date filtering (since Gmail IMAP SINCE is unreliable)
             if sync_since_date:
+                skip = False
+                # 1) Check email received date
                 try:
                     from email.utils import parsedate_to_datetime
                     email_dt = parsedate_to_datetime(email_date)
                     if email_dt.replace(tzinfo=None) < sync_since_date:
-                        skipped_by_date += 1
-                        continue
+                        skip = True
                 except Exception:
                     pass
+                # 2) Also check statement period from subject (e.g. "Statement for Oct-2022", "Mar-2025")
+                if not skip:
+                    skip = _is_subject_before_date(subject, sync_since_date)
+                if skip:
+                    skipped_by_date += 1
+                    continue
 
             # Check if already processed
             already_processed = await db.processed_emails.find_one({"email_hash": email_hash, "user_id": uid})
@@ -2579,13 +2651,22 @@ async def sync_account_email(account_id: str, user: Dict = Depends(get_current_u
 
             # Post-fetch date filtering (Gmail IMAP SINCE is unreliable with compound queries)
             if sync_since_date:
+                skip = False
                 try:
                     from email.utils import parsedate_to_datetime
                     email_dt = parsedate_to_datetime(email_date)
                     if email_dt.replace(tzinfo=None) < sync_since_date:
-                        continue
+                        skip = True
                 except Exception:
                     pass
+                if not skip:
+                    decoded_subj_parts = decode_header(subject)
+                    subj_text = ""
+                    for sp, enc in decoded_subj_parts:
+                        subj_text += sp.decode(enc or "utf-8", errors="replace") if isinstance(sp, bytes) else str(sp)
+                    skip = _is_subject_before_date(subj_text, sync_since_date)
+                if skip:
+                    continue
 
             already_processed = await db.processed_emails.find_one({"email_hash": email_hash, "user_id": uid})
             if already_processed:
