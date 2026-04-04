@@ -249,18 +249,67 @@ class TransferCreate(BaseModel):
     date: str
     description: str = "Transfer"
 
-# Default categories
+# Default categories — comprehensive Indian personal finance set
 DEFAULT_CATEGORIES = [
+    # ── Income (10) ──
     {"name": "Salary", "category_type": "income", "color": "#5C745A", "is_default": True},
-    {"name": "Investment Returns", "category_type": "income", "color": "#5C745A", "is_default": True},
-    {"name": "Food & Dining", "category_type": "expense", "color": "#C06B52", "is_default": True},
-    {"name": "Shopping", "category_type": "expense", "color": "#C06B52", "is_default": True},
-    {"name": "Transportation", "category_type": "expense", "color": "#D4A373", "is_default": True},
-    {"name": "Bills & Utilities", "category_type": "expense", "color": "#D4A373", "is_default": True},
-    {"name": "Entertainment", "category_type": "expense", "color": "#7CA1A6", "is_default": True},
-    {"name": "Healthcare", "category_type": "expense", "color": "#D4A373", "is_default": True},
+    {"name": "Freelance / Consulting", "category_type": "income", "color": "#6B8E6B", "is_default": True},
+    {"name": "Business Income", "category_type": "income", "color": "#5A8B8E", "is_default": True},
+    {"name": "Investment Returns", "category_type": "income", "color": "#7CA1A6", "is_default": True},
+    {"name": "Dividends", "category_type": "income", "color": "#5C745A", "is_default": True},
+    {"name": "Interest Income", "category_type": "income", "color": "#6B8E6B", "is_default": True},
+    {"name": "Rental Income", "category_type": "income", "color": "#5A8B8E", "is_default": True},
+    {"name": "Cashback / Rewards", "category_type": "income", "color": "#D4A373", "is_default": True},
+    {"name": "Gifts Received", "category_type": "income", "color": "#C07A84", "is_default": True},
+    {"name": "Refunds", "category_type": "income", "color": "#7CA1A6", "is_default": True},
+    # ── Expense — Food & Daily (5) ──
+    {"name": "Groceries", "category_type": "expense", "color": "#C06B52", "is_default": True},
+    {"name": "Dining Out / Restaurants", "category_type": "expense", "color": "#A35943", "is_default": True},
+    {"name": "Food Delivery", "category_type": "expense", "color": "#C06B52", "is_default": True},
+    {"name": "Coffee & Beverages", "category_type": "expense", "color": "#8B6E5A", "is_default": True},
+    {"name": "Snacks & Quick Bites", "category_type": "expense", "color": "#D4A373", "is_default": True},
+    # ── Expense — Housing & Utilities (5) ──
+    {"name": "Rent", "category_type": "expense", "color": "#D4A373", "is_default": True},
+    {"name": "Electricity", "category_type": "expense", "color": "#D4A373", "is_default": True},
+    {"name": "Water & Gas", "category_type": "expense", "color": "#A67C5A", "is_default": True},
+    {"name": "Internet & WiFi", "category_type": "expense", "color": "#7CA1A6", "is_default": True},
+    {"name": "Mobile Recharge", "category_type": "expense", "color": "#7CA1A6", "is_default": True},
+    # ── Expense — Transport (4) ──
+    {"name": "Fuel / Petrol", "category_type": "expense", "color": "#D4A373", "is_default": True},
+    {"name": "Cab / Auto / Uber", "category_type": "expense", "color": "#A67C5A", "is_default": True},
+    {"name": "Public Transport", "category_type": "expense", "color": "#8B6E5A", "is_default": True},
+    {"name": "Parking & Tolls", "category_type": "expense", "color": "#78716C", "is_default": True},
+    # ── Expense — Shopping & Lifestyle (4) ──
+    {"name": "Clothing & Apparel", "category_type": "expense", "color": "#C06B52", "is_default": True},
+    {"name": "Electronics & Gadgets", "category_type": "expense", "color": "#7A6BC0", "is_default": True},
+    {"name": "Home & Furniture", "category_type": "expense", "color": "#A67C5A", "is_default": True},
+    {"name": "Personal Care & Grooming", "category_type": "expense", "color": "#C07A84", "is_default": True},
+    # ── Expense — Health & Insurance (3) ──
+    {"name": "Medical / Doctor", "category_type": "expense", "color": "#C06B52", "is_default": True},
+    {"name": "Pharmacy / Medicine", "category_type": "expense", "color": "#A35943", "is_default": True},
+    {"name": "Insurance Premium", "category_type": "expense", "color": "#7CA1A6", "is_default": True},
+    # ── Expense — Education & Kids (2) ──
+    {"name": "Education & Courses", "category_type": "expense", "color": "#5C745A", "is_default": True},
+    {"name": "Books & Stationery", "category_type": "expense", "color": "#6B8E6B", "is_default": True},
+    # ── Expense — Entertainment & Leisure (3) ──
+    {"name": "Entertainment / Movies", "category_type": "expense", "color": "#7CA1A6", "is_default": True},
+    {"name": "Subscriptions / OTT", "category_type": "expense", "color": "#5A8B8E", "is_default": True},
+    {"name": "Travel & Holidays", "category_type": "expense", "color": "#D4A373", "is_default": True},
+    # ── Expense — Financial (5) ──
+    {"name": "EMI / Loan Repayment", "category_type": "expense", "color": "#C06B52", "is_default": True},
+    {"name": "Credit Card Payment", "category_type": "expense", "color": "#A35943", "is_default": True},
+    {"name": "Bank Charges / Fees", "category_type": "expense", "color": "#78716C", "is_default": True},
+    {"name": "Investment / SIP", "category_type": "expense", "color": "#5C745A", "is_default": True},
+    {"name": "Tax Payment", "category_type": "expense", "color": "#C06B52", "is_default": True},
+    # ── Expense — Household & Services (3) ──
+    {"name": "Domestic Help / Maid", "category_type": "expense", "color": "#A67C5A", "is_default": True},
+    {"name": "Maintenance / Society", "category_type": "expense", "color": "#D4A373", "is_default": True},
+    {"name": "Repairs & Services", "category_type": "expense", "color": "#8B6E5A", "is_default": True},
+    # ── Expense — Social & Misc (4) ──
+    {"name": "Gifts & Donations", "category_type": "expense", "color": "#C07A84", "is_default": True},
+    {"name": "Charity / Temple", "category_type": "expense", "color": "#7A6BC0", "is_default": True},
     {"name": "Transfer", "category_type": "expense", "color": "#78716C", "is_default": True},
-    {"name": "Other", "category_type": "expense", "color": "#A8A29E", "is_default": True},
+    {"name": "Other / Miscellaneous", "category_type": "expense", "color": "#A8A29E", "is_default": True},
 ]
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -494,6 +543,10 @@ async def create_category(category: CategoryCreate, user: Dict = Depends(get_cur
 @api_router.get("/categories", response_model=List[Category])
 async def get_categories(user: Dict = Depends(get_current_user)):
     categories = await db.categories.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(1000)
+    # Auto-restore defaults if no categories exist
+    if len(categories) == 0:
+        await _init_default_categories(user["user_id"])
+        categories = await db.categories.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(1000)
     for cat in categories:
         if isinstance(cat.get('created_at'), str):
             cat['created_at'] = datetime.fromisoformat(cat['created_at'])
@@ -524,6 +577,21 @@ async def delete_category(category_id: str, user: Dict = Depends(get_current_use
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Category not found")
     return {"message": "Category deleted"}
+
+@api_router.post("/categories/restore-defaults")
+async def restore_default_categories(user: Dict = Depends(get_current_user)):
+    """Re-create all missing default categories"""
+    uid = user["user_id"]
+    restored = 0
+    for cat_data in DEFAULT_CATEGORIES:
+        existing = await db.categories.find_one({"name": cat_data["name"], "is_default": True, "user_id": uid})
+        if not existing:
+            cat = Category(**cat_data, user_id=uid)
+            doc = cat.model_dump()
+            doc['created_at'] = doc['created_at'].isoformat()
+            await db.categories.insert_one(doc)
+            restored += 1
+    return {"message": f"Restored {restored} default categories", "restored": restored}
 
 # Transaction endpoints
 @api_router.post("/transactions", response_model=Transaction)
@@ -1192,7 +1260,82 @@ async def update_company(data: CompanyCreate, user: Dict = Depends(get_current_u
     )
     return {"message": "Company updated"}
 
+@api_router.get("/financial-years")
+async def get_financial_years(user: Dict = Depends(get_current_user)):
+    """Get list of financial years that have voucher data"""
+    uid = user["user_id"]
+    company = await db.companies.find_one({"user_id": uid}, {"_id": 0})
+    if not company:
+        return {"years": [], "current_fy": None}
+    fy_start = company.get("fy_start_month", 4)
+    
+    # Find min and max voucher dates
+    pipeline = [
+        {"$match": {"user_id": uid}},
+        {"$group": {"_id": None, "min_date": {"$min": "$date"}, "max_date": {"$max": "$date"}}}
+    ]
+    result = await db.vouchers.aggregate(pipeline).to_list(1)
+    
+    # Also check transaction dates
+    txn_pipeline = [
+        {"$match": {"user_id": uid}},
+        {"$group": {"_id": None, "min_date": {"$min": "$date"}, "max_date": {"$max": "$date"}}}
+    ]
+    txn_result = await db.transactions.aggregate(txn_pipeline).to_list(1)
+    
+    all_min_dates = []
+    all_max_dates = []
+    if result and result[0].get("min_date"):
+        all_min_dates.append(result[0]["min_date"])
+        all_max_dates.append(result[0]["max_date"])
+    if txn_result and txn_result[0].get("min_date"):
+        all_min_dates.append(txn_result[0]["min_date"])
+        all_max_dates.append(txn_result[0]["max_date"])
+    
+    if not all_min_dates:
+        # No data, return current FY
+        now = datetime.now(timezone.utc)
+        current_year = now.year if now.month >= fy_start else now.year - 1
+        return {
+            "years": [{"label": f"FY {current_year}-{str(current_year+1)[-2:]}", "start": f"{current_year}-{fy_start:02d}-01", "end": f"{current_year+1}-{fy_start-1:02d}-{28 if fy_start-1 == 2 else 31 if fy_start-1 in [1,3,5,7,8,10,12] else 30}"}],
+            "current_fy": f"FY {current_year}-{str(current_year+1)[-2:]}"
+        }
+    
+    min_date_str = min(all_min_dates)
+    max_date_str = max(all_max_dates)
+    
+    from datetime import date as date_type
+    try:
+        min_d = date_type.fromisoformat(min_date_str[:10])
+        max_d = date_type.fromisoformat(max_date_str[:10])
+    except Exception:
+        now = datetime.now(timezone.utc)
+        min_d = date_type(now.year, 1, 1)
+        max_d = date_type(now.year, 12, 31)
+    
+    min_fy = min_d.year if min_d.month >= fy_start else min_d.year - 1
+    max_fy = max_d.year if max_d.month >= fy_start else max_d.year - 1
+    now = datetime.now(timezone.utc)
+    current_fy_year = now.year if now.month >= fy_start else now.year - 1
+    max_fy = max(max_fy, current_fy_year)
+    
+    years = []
+    for y in range(max_fy, min_fy - 1, -1):
+        last_month = fy_start - 1 if fy_start > 1 else 12
+        last_day = 28 if last_month == 2 else 31 if last_month in [1,3,5,7,8,10,12] else 30
+        end_year = y + 1 if fy_start > 1 else y
+        years.append({
+            "label": f"FY {y}-{str(y+1)[-2:]}",
+
 # ─── Account Groups (Chart of Accounts) ──────────────────────────────
+            "start": f"{y}-{fy_start:02d}-01",
+            "end": f"{end_year}-{last_month:02d}-{last_day:02d}"
+        })
+    
+    return {
+        "years": years,
+        "current_fy": f"FY {current_fy_year}-{str(current_fy_year+1)[-2:]}"
+    }
 @api_router.get("/account-groups")
 async def get_account_groups(user: Dict = Depends(get_current_user)):
     await _init_default_company_and_coa(user["user_id"])
@@ -1773,6 +1916,12 @@ async def ai_categorize_transactions(
     """Use AI to auto-categorize uncategorized transactions"""
     uid = user["user_id"]
 
+    # Ensure categories exist
+    categories = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(200)
+    if len(categories) == 0:
+        await _init_default_categories(uid)
+        categories = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(200)
+
     query = {"user_id": uid, "category_id": None, "is_transfer": False}
     if transaction_ids:
         query["id"] = {"$in": transaction_ids}
@@ -1781,18 +1930,28 @@ async def ai_categorize_transactions(
     if not txns:
         return {"message": "No uncategorized transactions found", "categorized_count": 0}
 
-    categories = await db.categories.find({"user_id": uid}, {"_id": 0}).to_list(100)
     category_names = [c['name'] for c in categories if c['name'] != 'Transfer']
     category_map = {c['name'].lower(): c['id'] for c in categories}
 
     descriptions = [{"id": t["id"], "desc": t["description"], "amount": t["amount"], "type": t["transaction_type"]} for t in txns[:100]]
 
-    prompt = f"""Categorize the following financial transactions into one of these categories: {', '.join(category_names)}.
+    CATEGORIZATION_PROMPT = f"""You are an expert Indian personal finance categorizer. Categorize each transaction into EXACTLY ONE of these categories:
 
-Return ONLY a JSON array with objects having "id" and "category" fields. No explanation.
+INCOME categories: {', '.join([c for c in category_names if any(cat['name'] == c and cat['category_type'] == 'income' for cat in categories)])}
+EXPENSE categories: {', '.join([c for c in category_names if any(cat['name'] == c and cat['category_type'] == 'expense' for cat in categories)])}
 
-Transactions:
-{[{"id": d["id"], "description": d["desc"], "amount": d["amount"], "type": d["type"]} for d in descriptions]}"""
+RULES:
+1. For CREDIT (income) transactions, always pick from INCOME categories
+2. For DEBIT (expense) transactions, always pick from EXPENSE categories
+3. Match based on description keywords — e.g. "Swiggy"/"Zomato" = "Food Delivery", "Amazon"/"Flipkart" = varies by context, "IRCTC" = "Public Transport", "Netflix"/"Hotstar" = "Subscriptions / OTT"
+4. Indian bank descriptions often have codes like "UPI/", "NEFT/", "IMPS/" — look past these to the merchant/payee name
+5. If genuinely uncertain, use "Other / Miscellaneous"
+6. Category name must EXACTLY match one from the list above (case-insensitive)
+
+Return ONLY a valid JSON array. No markdown, no explanation. Each object: {{"id": "<transaction_id>", "category": "<exact_category_name>"}}
+
+Transactions to categorize:
+{descriptions}"""
 
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
@@ -1801,11 +1960,11 @@ Transactions:
         chat = LlmChat(
             api_key=os.environ.get("EMERGENT_LLM_KEY", ""),
             session_id=f"categorize_{uid}_{uuid.uuid4().hex[:8]}",
-            system_message="You are a financial transaction categorizer. Return only valid JSON."
+            system_message="You are a financial transaction categorizer for Indian bank/credit card statements. Return only valid JSON arrays. No markdown formatting."
         )
         chat.with_model("gemini", "gemini-2.5-flash")
 
-        response = await chat.send_message(UserMessage(text=prompt))
+        response = await chat.send_message(UserMessage(text=CATEGORIZATION_PROMPT))
 
         json_text = response.strip()
         if "```json" in json_text:
@@ -1818,8 +1977,14 @@ Transactions:
         categorized_count = 0
         for item in categorizations:
             txn_id = item.get("id")
-            cat_name = item.get("category", "").lower()
+            cat_name = item.get("category", "").lower().strip()
             cat_id = category_map.get(cat_name)
+            if not cat_id:
+                # Fuzzy match — try partial match
+                for k, v in category_map.items():
+                    if cat_name in k or k in cat_name:
+                        cat_id = v
+                        break
             if txn_id and cat_id:
                 result = await db.transactions.update_one(
                     {"id": txn_id, "user_id": uid},
@@ -1831,7 +1996,8 @@ Transactions:
         return {
             "message": f"Categorized {categorized_count} of {len(txns)} transactions",
             "categorized_count": categorized_count,
-            "total_uncategorized": len(txns)
+            "total_uncategorized": len(txns),
+            "prompt_used": CATEGORIZATION_PROMPT[:500] + "..."
         }
     except Exception as e:
         logger.error(f"AI categorization error: {str(e)}")

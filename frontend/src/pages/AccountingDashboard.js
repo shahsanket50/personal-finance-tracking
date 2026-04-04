@@ -1,11 +1,8 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Buildings, Scales, BookOpen, Receipt, ArrowsLeftRight, ChartBar } from '@phosphor-icons/react';
+import { Buildings, Scales, BookOpen, Receipt, ChartBar, CalendarBlank, Gear } from '@phosphor-icons/react';
 import { toast } from 'sonner';
-import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Label } from '../components/ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '../components/ui/dialog';
+import { useNavigate } from 'react-router-dom';
 
 const API = process.env.REACT_APP_BACKEND_URL + '/api';
 
@@ -14,23 +11,23 @@ const AccountingDashboard = () => {
   const [stats, setStats] = useState({ ledgers: 0, vouchers: 0, groups: 0 });
   const [trialBalance, setTrialBalance] = useState(null);
   const [profitLoss, setProfitLoss] = useState(null);
+  const [currentFy, setCurrentFy] = useState('');
   const [loading, setLoading] = useState(true);
-  const [editOpen, setEditOpen] = useState(false);
-  const [editForm, setEditForm] = useState({ name: '', address: '', gstin: '', pan: '', fy_start_month: 4 });
-  const [migrateLoading, setMigrateLoading] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [companyRes, ledgersRes, vouchersRes, groupsRes, tbRes, plRes] = await Promise.all([
+      const [companyRes, ledgersRes, vouchersRes, groupsRes, tbRes, plRes, fyRes] = await Promise.all([
         axios.get(`${API}/company`),
         axios.get(`${API}/ledgers`),
         axios.get(`${API}/vouchers`),
         axios.get(`${API}/account-groups`),
         axios.get(`${API}/trial-balance`),
         axios.get(`${API}/profit-loss`),
+        axios.get(`${API}/financial-years`),
       ]);
       setCompany(companyRes.data);
       setStats({
@@ -40,41 +37,11 @@ const AccountingDashboard = () => {
       });
       setTrialBalance(tbRes.data);
       setProfitLoss(plRes.data);
-      setEditForm({
-        name: companyRes.data.name || '',
-        address: companyRes.data.address || '',
-        gstin: companyRes.data.gstin || '',
-        pan: companyRes.data.pan || '',
-        fy_start_month: companyRes.data.fy_start_month || 4,
-      });
+      setCurrentFy(fyRes.data.current_fy || '');
     } catch {
       toast.error('Failed to load accounting data');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const updateCompany = async () => {
-    try {
-      await axios.put(`${API}/company`, editForm);
-      toast.success('Company updated');
-      setEditOpen(false);
-      loadData();
-    } catch {
-      toast.error('Failed to update company');
-    }
-  };
-
-  const migrateTransactions = async () => {
-    setMigrateLoading(true);
-    try {
-      const res = await axios.post(`${API}/migrate-to-accounting`);
-      toast.success(res.data.message);
-      loadData();
-    } catch {
-      toast.error('Migration failed');
-    } finally {
-      setMigrateLoading(false);
     }
   };
 
@@ -102,49 +69,21 @@ const AccountingDashboard = () => {
             {company?.name || 'My Business'}
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--app-text-muted)' }}>
-            {company?.gstin ? `GSTIN: ${company.gstin}` : 'Accounting Dashboard'}
-            {company?.pan ? ` | PAN: ${company.pan}` : ''}
+            {company?.gstin ? `GSTIN: ${company.gstin}` : ''}
+            {company?.pan ? `${company?.gstin ? ' | ' : ''}PAN: ${company.pan}` : ''}
+            {currentFy && <span className="ml-2 px-2 py-0.5 rounded text-xs font-medium" style={{ background: 'var(--app-accent-light)', color: 'var(--app-accent-text)' }}>
+              <CalendarBlank size={12} className="inline mr-1" />{currentFy}
+            </span>}
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={migrateTransactions} disabled={migrateLoading} data-testid="migrate-btn">
-            <ArrowsLeftRight size={16} className="mr-1.5" />
-            {migrateLoading ? 'Migrating...' : 'Sync Transactions'}
-          </Button>
-          <Dialog open={editOpen} onOpenChange={setEditOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm" data-testid="edit-company-btn">
-                <Buildings size={16} className="mr-1.5" /> Edit Company
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Company Details</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-3 pt-2">
-                <div>
-                  <Label>Company Name</Label>
-                  <Input value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} data-testid="company-name-input" />
-                </div>
-                <div>
-                  <Label>Address</Label>
-                  <Input value={editForm.address} onChange={e => setEditForm(p => ({ ...p, address: e.target.value }))} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>GSTIN</Label>
-                    <Input value={editForm.gstin} onChange={e => setEditForm(p => ({ ...p, gstin: e.target.value }))} />
-                  </div>
-                  <div>
-                    <Label>PAN</Label>
-                    <Input value={editForm.pan} onChange={e => setEditForm(p => ({ ...p, pan: e.target.value }))} />
-                  </div>
-                </div>
-                <Button onClick={updateCompany} className="w-full" data-testid="save-company-btn">Save</Button>
-              </div>
-            </DialogContent>
-          </Dialog>
-        </div>
+        <button
+          onClick={() => navigate('/settings')}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors border"
+          style={{ borderColor: 'var(--app-border)', color: 'var(--app-text-muted)', background: 'var(--app-surface)' }}
+          data-testid="company-settings-link"
+        >
+          <Gear size={16} /> Company Settings
+        </button>
       </div>
 
       {/* Summary Cards */}
