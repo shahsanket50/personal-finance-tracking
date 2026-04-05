@@ -5,10 +5,9 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
-import { UploadSimple, FileCsv, FilePdf } from '@phosphor-icons/react';
+import { UploadSimple, FileCsv, FilePdf, CheckCircle, XCircle, Tag, ArrowsClockwise, FileText } from '@phosphor-icons/react';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+const API = process.env.REACT_APP_BACKEND_URL + '/api';
 
 const Upload = () => {
   const [accounts, setAccounts] = useState([]);
@@ -16,23 +15,17 @@ const Upload = () => {
   const [pdfPassword, setPdfPassword] = useState('');
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [result, setResult] = useState(null);
 
-  useEffect(() => {
-    loadAccounts();
-  }, []);
+  useEffect(() => { loadAccounts(); }, []);
 
   const loadAccounts = async () => {
     try {
       const res = await axios.get(`${API}/accounts`);
       setAccounts(res.data);
-    } catch (err) {
+    } catch {
       toast.error('Failed to load accounts');
-      console.error(err);
     }
-  };
-
-  const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
   };
 
   const handleUpload = async (e) => {
@@ -43,38 +36,51 @@ const Upload = () => {
     }
 
     setUploading(true);
+    setResult(null);
     const formData = new FormData();
     formData.append('file', file);
 
     try {
-      let endpoint = file.name.endsWith('.csv') ? 'import-csv' : 'upload-statement';
+      const endpoint = file.name.endsWith('.csv') ? 'import-csv' : 'upload-statement';
       let url = `${API}/${endpoint}?account_id=${selectedAccount}`;
-      
-      // Add password parameter for PDF uploads
       if (endpoint === 'upload-statement' && pdfPassword) {
         url += `&password=${encodeURIComponent(pdfPassword)}`;
       }
-      
+
       const res = await axios.post(url, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      
-      toast.success(res.data.message);
-      if (res.data.imported_count !== undefined) {
-        toast.info(`Imported: ${res.data.imported_count} | Duplicates skipped: ${res.data.duplicates_skipped || 0}`);
-      }
-      if (res.data.note) {
-        toast.info(res.data.note);
-      }
-      
+
+      const accountName = accounts.find(a => a.id === selectedAccount)?.name || 'Unknown';
+      setResult({
+        success: true,
+        fileName: file.name,
+        accountName,
+        message: res.data.message,
+        imported: res.data.imported_count ?? 0,
+        duplicates: res.data.duplicates_skipped ?? 0,
+        totalFound: res.data.total_found ?? 0,
+        categorized: res.data.categorized_count ?? 0,
+        note: res.data.note || null,
+      });
+
       setFile(null);
       setPdfPassword('');
       if (document.getElementById('file-input')) {
         document.getElementById('file-input').value = '';
       }
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Upload failed');
-      console.error(err);
+      const accountName = accounts.find(a => a.id === selectedAccount)?.name || 'Unknown';
+      setResult({
+        success: false,
+        fileName: file.name,
+        accountName,
+        message: err.response?.data?.detail || 'Upload failed',
+        imported: 0,
+        duplicates: 0,
+        totalFound: 0,
+        categorized: 0,
+      });
     } finally {
       setUploading(false);
     }
@@ -91,111 +97,185 @@ const Upload = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Upload Form */}
-        <div className="themed-card rounded-lg p-6 shadow-sm">
-          <h3 className="font-heading text-xl mb-4" style={{ color: 'var(--app-text)' }}>Upload File</h3>
-          <form onSubmit={handleUpload} className="space-y-4">
-            <div>
-              <Label>Select Account</Label>
-              <Select value={selectedAccount} onValueChange={setSelectedAccount}>
-                <SelectTrigger data-testid="upload-account-select">
-                  <SelectValue placeholder="Choose an account" />
-                </SelectTrigger>
-                <SelectContent>
-                  {accounts.map(acc => (
-                    <SelectItem key={acc.id} value={acc.id}>{acc.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div>
-              <Label htmlFor="pdf-password">PDF Password (if protected - optional)</Label>
-              <Input
-                id="pdf-password"
-                type="text"
-                data-testid="pdf-password-input"
-                value={pdfPassword}
-                onChange={e => setPdfPassword(e.target.value)}
-                placeholder="e.g., DDMMYYYY or last 4 digits"
-              />
-              <p className="text-xs mt-1" style={{ color: 'var(--app-text-secondary)' }}>
-                Leave blank if saved in account settings or not password-protected
-              </p>
-            </div>
-            
-            <div>
-              <Label htmlFor="file-input">Select File (PDF or CSV)</Label>
-              <input
-                id="file-input"
-                type="file"
-                accept=".pdf,.csv"
-                onChange={handleFileChange}
-                data-testid="file-input"
-                className="mt-2 block w-full text-sm border border-[var(--app-card-border)] rounded-lg cursor-pointer focus:outline-none p-2"
-                style={{ color: 'var(--app-text)' }}
-              />
-              {file && (
-                <p className="mt-2 text-sm" style={{ color: 'var(--app-accent)' }}>
-                  Selected: {file.name}
+        <div className="space-y-4">
+          <div className="themed-card rounded-lg p-6 shadow-sm">
+            <h3 className="font-heading text-xl mb-4" style={{ color: 'var(--app-text)' }}>Upload File</h3>
+            <form onSubmit={handleUpload} className="space-y-4">
+              <div>
+                <Label>Select Account</Label>
+                <Select value={selectedAccount} onValueChange={setSelectedAccount}>
+                  <SelectTrigger data-testid="upload-account-select">
+                    <SelectValue placeholder="Choose an account" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts.map(acc => (
+                      <SelectItem key={acc.id} value={acc.id}>{acc.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label htmlFor="pdf-password">PDF Password (if protected - optional)</Label>
+                <Input
+                  id="pdf-password"
+                  type="text"
+                  data-testid="pdf-password-input"
+                  value={pdfPassword}
+                  onChange={e => setPdfPassword(e.target.value)}
+                  placeholder="e.g., DDMMYYYY or last 4 digits"
+                />
+                <p className="text-xs mt-1" style={{ color: 'var(--app-text-secondary)' }}>
+                  Leave blank if saved in account settings or not password-protected
+                </p>
+              </div>
+
+              <div>
+                <Label htmlFor="file-input">Select File (PDF or CSV)</Label>
+                <input
+                  id="file-input"
+                  type="file"
+                  accept=".pdf,.csv"
+                  onChange={e => setFile(e.target.files[0])}
+                  data-testid="file-input"
+                  className="mt-2 block w-full text-sm border rounded-lg cursor-pointer focus:outline-none p-2"
+                  style={{ color: 'var(--app-text)', borderColor: 'var(--app-border)' }}
+                />
+                {file && (
+                  <p className="mt-2 text-sm flex items-center gap-1.5" style={{ color: 'var(--app-accent)' }}>
+                    <FileText size={14} /> {file.name} ({(file.size / 1024).toFixed(1)} KB)
+                  </p>
+                )}
+              </div>
+
+              <Button
+                type="submit"
+                disabled={uploading || !file || !selectedAccount}
+                data-testid="upload-submit-btn"
+                className="w-full themed-btn-primary rounded-lg disabled:opacity-50"
+              >
+                {uploading ? (
+                  <>
+                    <ArrowsClockwise size={18} className="mr-2 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <UploadSimple size={18} className="mr-2" />
+                    Upload & Import
+                  </>
+                )}
+              </Button>
+            </form>
+          </div>
+
+          {/* Result Panel */}
+          {result && (
+            <div
+              className="rounded-lg p-5 border-2 transition-all"
+              style={{
+                borderColor: result.success ? '#5C745A' : '#C06B52',
+                background: result.success ? '#5C745A08' : '#C06B5208',
+              }}
+              data-testid="upload-result-panel"
+            >
+              <div className="flex items-center gap-2 mb-3">
+                {result.success ? (
+                  <CheckCircle size={22} weight="fill" color="#5C745A" />
+                ) : (
+                  <XCircle size={22} weight="fill" color="#C06B52" />
+                )}
+                <span className="font-semibold text-sm" style={{ color: result.success ? '#5C745A' : '#C06B52' }}>
+                  {result.success ? 'Upload Successful' : 'Upload Failed'}
+                </span>
+              </div>
+
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center justify-between py-1 border-b" style={{ borderColor: 'var(--app-border)' }}>
+                  <span style={{ color: 'var(--app-text-muted)' }}>File</span>
+                  <span className="font-mono text-xs" style={{ color: 'var(--app-text)' }}>{result.fileName}</span>
+                </div>
+                <div className="flex items-center justify-between py-1 border-b" style={{ borderColor: 'var(--app-border)' }}>
+                  <span style={{ color: 'var(--app-text-muted)' }}>Account</span>
+                  <span style={{ color: 'var(--app-text)' }}>{result.accountName}</span>
+                </div>
+
+                {result.success && (
+                  <>
+                    <div className="flex items-center justify-between py-1 border-b" style={{ borderColor: 'var(--app-border)' }}>
+                      <span style={{ color: 'var(--app-text-muted)' }}>Transactions Found</span>
+                      <span className="font-bold" style={{ color: 'var(--app-text)' }}>{result.totalFound}</span>
+                    </div>
+                    <div className="flex items-center justify-between py-1 border-b" style={{ borderColor: 'var(--app-border)' }}>
+                      <span style={{ color: 'var(--app-text-muted)' }}>Imported (new)</span>
+                      <span className="font-bold" style={{ color: '#5C745A' }}>{result.imported}</span>
+                    </div>
+                    {result.duplicates > 0 && (
+                      <div className="flex items-center justify-between py-1 border-b" style={{ borderColor: 'var(--app-border)' }}>
+                        <span style={{ color: 'var(--app-text-muted)' }}>Duplicates Skipped</span>
+                        <span className="font-mono text-xs" style={{ color: 'var(--app-text-muted)' }}>{result.duplicates}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between py-1">
+                      <span className="flex items-center gap-1" style={{ color: 'var(--app-text-muted)' }}>
+                        <Tag size={14} /> Auto-Categorized
+                      </span>
+                      <span className="font-bold" style={{ color: result.categorized > 0 ? '#7CA1A6' : 'var(--app-text-muted)' }}>
+                        {result.categorized > 0 ? result.categorized : 'None'}
+                      </span>
+                    </div>
+                  </>
+                )}
+
+                {!result.success && (
+                  <div className="py-1">
+                    <span className="text-xs" style={{ color: '#C06B52' }}>{result.message}</span>
+                  </div>
+                )}
+              </div>
+
+              {result.note && (
+                <p className="mt-3 text-xs px-3 py-2 rounded" style={{ background: 'var(--app-accent-light)', color: 'var(--app-accent-text)' }}>
+                  {result.note}
                 </p>
               )}
             </div>
-
-            <Button 
-              type="submit" 
-              disabled={uploading || !file || !selectedAccount}
-              data-testid="upload-submit-btn"
-              className="w-full themed-btn-primary rounded-lg disabled:opacity-50"
-            >
-              <UploadSimple size={18} className="mr-2" />
-              {uploading ? 'Uploading...' : 'Upload File'}
-            </Button>
-          </form>
+          )}
         </div>
 
         {/* Instructions */}
         <div className="space-y-4">
           <div className="themed-card rounded-lg p-6 shadow-sm">
             <div className="flex items-center gap-3 mb-3">
-              <FileCsv size={24} style={{ color: 'var(--app-accent)' }} />
-              <h3 className="font-heading text-lg" style={{ color: 'var(--app-text)' }}>CSV Format</h3>
-            </div>
-            <p className="text-sm mb-2" style={{ color: 'var(--app-text-secondary)' }}>Your CSV file should have the following columns:</p>
-            <div className="themed-badge p-3 rounded font-mono text-xs" style={{ color: 'var(--app-text)' }}>
-              date,description,amount,type
-            </div>
-            <p className="text-sm mt-2" style={{ color: 'var(--app-text-secondary)' }}>Example:</p>
-            <div className="themed-badge p-3 rounded font-mono text-xs mt-2" style={{ color: 'var(--app-text)' }}>
-              2025-01-15,Grocery Store,2500.50,debit<br />
-              2025-01-16,Salary Deposit,50000.00,credit
-            </div>
-          </div>
-
-          <div className="themed-card rounded-lg p-6 shadow-sm">
-            <div className="flex items-center gap-3 mb-3">
-              <FilePdf size={24} style={{ color: 'var(--app-danger)' }} />
+              <FilePdf size={24} style={{ color: '#C06B52' }} />
               <h3 className="font-heading text-lg" style={{ color: 'var(--app-text)' }}>PDF Statements</h3>
             </div>
             <p className="text-sm mb-3" style={{ color: 'var(--app-text-secondary)' }}>
               Upload PDF statements from any bank. The system will auto-detect transaction patterns.
             </p>
-            <div className="p-3 bg-[var(--app-accent-light)] border border-[var(--app-accent)] rounded-lg mb-3">
-              <p className="text-sm" style={{ color: 'var(--app-accent-text)' }}>
-                <strong>💡 Pro Tip:</strong> Use the <strong>Parser Builder</strong> (sparkle icon on Accounts page) to configure custom parsing for each account!
-              </p>
-            </div>
-            <div className="text-sm mb-2" style={{ color: 'var(--app-text)', fontWeight: '500' }}>How it works:</div>
-            <ul className="text-sm space-y-1" style={{ color: 'var(--app-text-secondary)' }}>
-              <li>• Auto-detects common bank statement formats</li>
-              <li>• Uses custom parser if configured for the account</li>
-              <li>• Automatically skips duplicate transactions</li>
-              <li>• Saves password to account for future uploads</li>
+            <ul className="text-sm space-y-1.5" style={{ color: 'var(--app-text-secondary)' }}>
+              <li className="flex items-start gap-2"><CheckCircle size={14} className="mt-0.5 shrink-0" style={{ color: '#5C745A' }} /> Auto-detects common bank statement formats</li>
+              <li className="flex items-start gap-2"><CheckCircle size={14} className="mt-0.5 shrink-0" style={{ color: '#5C745A' }} /> Uses custom parser if configured for the account</li>
+              <li className="flex items-start gap-2"><CheckCircle size={14} className="mt-0.5 shrink-0" style={{ color: '#5C745A' }} /> Automatically skips duplicate transactions</li>
+              <li className="flex items-start gap-2"><CheckCircle size={14} className="mt-0.5 shrink-0" style={{ color: '#5C745A' }} /> AI auto-categorizes imported transactions</li>
+              <li className="flex items-start gap-2"><CheckCircle size={14} className="mt-0.5 shrink-0" style={{ color: '#5C745A' }} /> Auto-creates accounting vouchers (bridge)</li>
             </ul>
           </div>
 
           <div className="themed-card rounded-lg p-6 shadow-sm">
-            <h3 className="font-heading text-lg mb-2" style={{ color: 'var(--app-text)' }}>Sample CSV Download</h3>
-            <p className="text-sm mb-3" style={{ color: 'var(--app-text-secondary)' }}>Download a sample CSV file to see the correct format:</p>
+            <div className="flex items-center gap-3 mb-3">
+              <FileCsv size={24} style={{ color: 'var(--app-accent)' }} />
+              <h3 className="font-heading text-lg" style={{ color: 'var(--app-text)' }}>CSV Format</h3>
+            </div>
+            <p className="text-sm mb-2" style={{ color: 'var(--app-text-secondary)' }}>Your CSV file should have the following columns:</p>
+            <div className="p-3 rounded font-mono text-xs" style={{ background: 'var(--app-bg)', color: 'var(--app-text)', border: '1px solid var(--app-border)' }}>
+              date,description,amount,type
+            </div>
+            <p className="text-sm mt-2" style={{ color: 'var(--app-text-secondary)' }}>Example:</p>
+            <div className="p-3 rounded font-mono text-xs mt-1" style={{ background: 'var(--app-bg)', color: 'var(--app-text)', border: '1px solid var(--app-border)' }}>
+              2025-01-15,Grocery Store,2500.50,debit<br />
+              2025-01-16,Salary Deposit,50000.00,credit
+            </div>
             <Button
               onClick={() => {
                 const csvContent = 'date,description,amount,type\n2025-01-15,Grocery Store,2500.50,debit\n2025-01-16,Salary Deposit,50000.00,credit\n2025-01-17,Coffee Shop,450.00,debit';
@@ -207,10 +287,11 @@ const Upload = () => {
                 a.click();
               }}
               data-testid="download-sample-btn"
-              className="themed-badge text-[#1C1917] hover:bg-[#E5E2DC] border border-[var(--app-card-border)] rounded-lg"
+              variant="outline"
+              className="mt-3 text-sm"
+              size="sm"
             >
-              <FileCsv size={18} className="mr-2" />
-              Download Sample CSV
+              <FileCsv size={16} className="mr-1.5" /> Download Sample CSV
             </Button>
           </div>
         </div>

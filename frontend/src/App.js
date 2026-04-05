@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -65,7 +65,21 @@ function AppLayout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
 
-  const isAccountingView = location.pathname.startsWith('/accounting');
+  // Persist view context — so /settings doesn't lose which view the user was on
+  const [viewMode, setViewMode] = useState(() => sessionStorage.getItem('viewMode') || 'tracker');
+
+  useEffect(() => {
+    if (location.pathname.startsWith('/accounting')) {
+      setViewMode('accounting');
+      sessionStorage.setItem('viewMode', 'accounting');
+    } else if (location.pathname !== '/settings') {
+      setViewMode('tracker');
+      sessionStorage.setItem('viewMode', 'tracker');
+    }
+    // /settings keeps the previous viewMode
+  }, [location.pathname]);
+
+  const isAccountingView = viewMode === 'accounting';
   const navItems = isAccountingView ? ACCOUNTING_NAV : TRACKER_NAV;
   const viewLabel = isAccountingView ? 'Accounting' : 'Finance Tracker';
   const switchPath = isAccountingView ? '/' : '/accounting';
