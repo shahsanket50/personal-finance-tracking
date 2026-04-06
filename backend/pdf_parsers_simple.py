@@ -8,6 +8,20 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _decrypt_pdf_bytes(pdf_blob: bytes, password: str) -> bytes:
+    """Decrypt a password-protected PDF using pikepdf, return decrypted bytes."""
+    try:
+        import pikepdf
+        input_file = io.BytesIO(pdf_blob)
+        pdf = pikepdf.open(input_file, password=password)
+        output = io.BytesIO()
+        pdf.save(output)
+        pdf.close()
+        return output.getvalue()
+    except Exception:
+        return None
+
+
 class SimplePDFParser:
     """Smart PDF parser that tries multiple strategies to extract transactions"""
 
@@ -34,7 +48,23 @@ class SimplePDFParser:
                 pdf_file.seek(0)
                 continue
 
-        raise Exception("PDF is password protected or cannot be read")
+        # Fallback: use pikepdf to decrypt, then re-open with pdfplumber
+        if password:
+            decrypted = _decrypt_pdf_bytes(pdf_blob, password)
+            if decrypted:
+                try:
+                    with pdfplumber.open(io.BytesIO(decrypted)) as pdf:
+                        for page in pdf.pages:
+                            page_text = page.extract_text()
+                            if page_text:
+                                text_content += page_text + "\n"
+                    return text_content
+                except Exception as e:
+                    logger.warning(f"pikepdf decrypted but pdfplumber failed: {e}")
+            else:
+                raise Exception(f"Invalid password for this PDF. Please check and re-enter the correct password.")
+
+        raise Exception("PDF is password protected or cannot be read. Please provide the correct password.")
 
     def extract_tables(self, pdf_blob: bytes, password: str = None) -> List:
         """Extract tables from PDF using pdfplumber"""
@@ -53,6 +83,20 @@ class SimplePDFParser:
             except Exception:
                 pdf_file.seek(0)
                 continue
+
+        # Fallback: pikepdf decrypt
+        if password:
+            decrypted = _decrypt_pdf_bytes(pdf_blob, password)
+            if decrypted:
+                try:
+                    with pdfplumber.open(io.BytesIO(decrypted)) as pdf:
+                        for page in pdf.pages:
+                            tables = page.extract_tables()
+                            if tables:
+                                all_tables.extend(tables)
+                    return all_tables
+                except Exception:
+                    pass
         return []
 
     def parse(self, pdf_blob: bytes, password: str = None) -> List[Dict]:

@@ -1091,8 +1091,10 @@ async def upload_statement(
             "duplicates_skipped": len(parsed_transactions) - imported_count
         }
     except Exception as e:
-        logger.error(f"Error processing PDF: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
+        error_msg = str(e)
+        logger.error(f"Error processing PDF: {error_msg}")
+        status = 400 if "password" in error_msg.lower() else 500
+        raise HTTPException(status_code=status, detail=f"Error processing PDF: {error_msg}")
 
 # Parser Builder endpoints
 @api_router.post("/build-parser")
