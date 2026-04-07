@@ -41,6 +41,7 @@ const Vouchers = () => {
     ],
   });
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadData(); }, [filterType]);
 
   const loadData = async () => {

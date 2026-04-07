@@ -550,3 +550,148 @@ async def migrate_transactions_to_vouchers(user: Dict = Depends(get_current_user
         migrated += 1
 
     return {"message": f"Migrated {migrated} transactions to accounting vouchers", "migrated": migrated}
+
+
+# ─── Cash Flow Statement ──────────────────────────────────────────────
+@router.get("/cash-flow")
+async def get_cash_flow(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user: Dict = Depends(get_current_user)
+):
+    uid = user["user_id"]
+    await init_default_company_and_coa(uid)
+
+    ledgers = await db.ledgers.find({"user_id": uid}, {"_id": 0}).to_list(500)
+    groups = await db.account_groups.find({"user_id": uid}, {"_id": 0}).to_list(200)
+    group_map = {g["id"]: g for g in groups}
+
+    # Build group hierarchy for parent lookups
+    group_name_map = {g["name"].lower(): g for g in groups}
+
+    vquery = {"user_id": uid, "is_posted": True}
+    if start_date or end_date:
+        vquery["date"] = {}
+        if start_date:
+            vquery["date"]["$gte"] = start_date
+        if end_date:
+            vquery["date"]["$lte"] = end_date
+    vouchers = await db.vouchers.find(vquery, {"_id": 0}).to_list(10000)
+
+    # Aggregate ledger-level totals
+    ledger_totals = defaultdict(lambda: {"debit": 0.0, "credit": 0.0})
+    for v in vouchers:
+        for entry in v.get("entries", []):
+            lid = entry.get("ledger_id")
+            ledger_totals[lid]["debit"] += entry.get("debit", 0)
+            ledger_totals[lid]["credit"] += entry.get("credit", 0)
+
+    # Classify each ledger into operating / investing / financing
+    operating_groups = {"direct income", "indirect income", "direct expenses", "indirect expenses",
+                        "sundry debtors", "sundry creditors", "duties & taxes", "provisions",
+                        "current liabilities", "current assets", "stock-in-hand", "sales account",
+                        "purchase account"}
+    investing_groups = {"fixed assets", "investments", "deposits (asset)"}
+    financing_groups = {"capital account", "loans (liability)", "secured loans", "unsecured loans",
+                        "bank od a/c", "loans & advances (asset)"}
+
+    def classify_group(group):
+        if not group:
+            return "operating"
+        name = group.get("name", "").lower()
+        if name in investing_groups:
+            return "investing"
+        if name in financing_groups:
+            return "financing"
+        # Check parent
+        parent_id = group.get("parent_id")
+        if parent_id:
+            parent = group_map.get(parent_id, {})
+            parent_name = parent.get("name", "").lower()
+            if parent_name in investing_groups:
+                return "investing"
+            if parent_name in financing_groups:
+                return "financing"
+        return "operating"
+
+    operating = []
+    investing = []
+    financing = []
+    total_operating = 0.0
+    total_investing = 0.0
+    total_financing = 0.0
+
+    # Skip bank/cash ledgers from the line items (they are the result, not the cause)
+    bank_cash_groups = {"bank accounts", "cash-in-hand"}
+
+    for ledger in ledgers:
+        lid = ledger["id"]
+        group = group_map.get(ledger.get("group_id"), {})
+        group_name = group.get("name", "").lower()
+
+        if group_name in bank_cash_groups:
+            continue
+
+        totals = ledger_totals.get(lid, {"debit": 0, "credit": 0})
+        net = totals["debit"] - totals["credit"]
+
+        if abs(net) < 0.01:
+            continue
+
+        category = classify_group(group)
+        nature = group.get("nature", "")
+
+        # For income ledgers, credit > debit means inflow
+        # For expense ledgers, debit > credit means outflow
+        # Cash flow impact: income = inflow (+), expense = outflow (-)
+        if nature == "income":
+            cash_impact = totals["credit"] - totals["debit"]  # positive = inflow
+        elif nature == "expense":
+            cash_impact = -(totals["debit"] - totals["credit"])  # negative = outflow
+        elif nature == "asset":
+            cash_impact = -(totals["debit"] - totals["credit"])  # asset increase = outflow
+        elif nature == "liability":
+            cash_impact = totals["credit"] - totals["debit"]  # liability increase = inflow
+        else:
+            cash_impact = totals["credit"] - totals["debit"]
+
+        item = {
+            "ledger_name": ledger["name"],
+            "group_name": group.get("name", ""),
+            "nature": nature,
+            "amount": round(cash_impact, 2)
+        }
+
+        if category == "investing":
+            investing.append(item)
+            total_investing += cash_impact
+        elif category == "financing":
+            financing.append(item)
+            total_financing += cash_impact
+        else:
+            operating.append(item)
+            total_operating += cash_impact
+
+    # Calculate opening and closing cash/bank balances
+    cash_bank_ledgers = [l for l in ledgers if group_map.get(l.get("group_id"), {}).get("name", "").lower() in bank_cash_groups]
+    opening_cash = sum(
+        l.get("opening_balance", 0) * (1 if l.get("opening_type") == "dr" else -1)
+        for l in cash_bank_ledgers
+    )
+
+    closing_cash = opening_cash
+    for l in cash_bank_ledgers:
+        lid = l["id"]
+        t = ledger_totals.get(lid, {"debit": 0, "credit": 0})
+        closing_cash += t["debit"] - t["credit"]
+
+    net_change = total_operating + total_investing + total_financing
+
+    return {
+        "operating": {"items": operating, "total": round(total_operating, 2)},
+        "investing": {"items": investing, "total": round(total_investing, 2)},
+        "financing": {"items": financing, "total": round(total_financing, 2)},
+        "net_cash_change": round(net_change, 2),
+        "opening_cash": round(opening_cash, 2),
+        "closing_cash": round(closing_cash, 2)
+    }

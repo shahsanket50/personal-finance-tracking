@@ -28,7 +28,8 @@ const ChartOfAccounts = () => {
   const [ledgerForm, setLedgerForm] = useState({ name: '', group_id: '', opening_balance: 0, opening_type: 'dr' });
   const [groupForm, setGroupForm] = useState({ name: '', parent_id: '', nature: 'expense' });
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadData = async () => {
     setLoading(true);

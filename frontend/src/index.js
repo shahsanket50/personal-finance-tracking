@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import axios from "axios";
 import "@/index.css";
 import App from "@/App";
+import { App as CapApp } from '@capacitor/app';
 
 // Set axios defaults for all requests
 axios.defaults.withCredentials = true;
@@ -20,3 +21,12 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/service-worker.js').catch(() => {});
   });
 }
+
+// Handle Android back button via Capacitor
+CapApp.addListener('backButton', ({ canGoBack }) => {
+  if (canGoBack) {
+    window.history.back();
+  } else {
+    CapApp.exitApp();
+  }
+});
