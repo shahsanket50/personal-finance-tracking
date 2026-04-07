@@ -34,6 +34,7 @@ async def get_analytics_summary(
 
     category_breakdown = [
         {
+            "category_id": cat_id,
             "category": category_map[cat_id]['name'],
             "name": category_map[cat_id]['name'],
             "amount": amount,

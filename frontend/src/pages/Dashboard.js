@@ -102,8 +102,9 @@ const Dashboard = () => {
   // Navigate to transactions with filters
   const goToTransactions = (params = {}) => {
     const search = new URLSearchParams();
+    search.set('from', 'dashboard');
     if (params.type) search.set('type', params.type);
-    if (params.category) search.set('category', params.category);
+    if (params.categoryId) search.set('categoryId', params.categoryId);
     if (params.search) search.set('search', params.search);
     if (params.dateFrom) search.set('dateFrom', params.dateFrom);
     if (params.dateTo) search.set('dateTo', params.dateTo);
@@ -112,6 +113,14 @@ const Dashboard = () => {
       if (!params.dateTo) search.set('dateTo', endDate);
     }
     navigate(`/transactions?${search.toString()}`);
+  };
+
+  // Find category ID by name
+  const findCategoryId = (name) => {
+    if (!analytics?.category_breakdown) return null;
+    // analytics doesn't have IDs, but we have categories loaded
+    // We'll need to fetch categories — for now use name-based search
+    return null;
   };
 
   const totalBalance = useMemo(() => accounts.reduce((s, a) => s + a.current_balance, 0), [accounts]);
@@ -303,8 +312,8 @@ const Dashboard = () => {
               <BarChart data={topExpenses} layout="vertical" margin={{ left: 10, right: 16 }}
                 onClick={(data) => {
                   if (data?.activePayload?.[0]) {
-                    const cat = data.activePayload[0].payload.category;
-                    goToTransactions({ search: cat, type: 'debit' });
+                    const cat = data.activePayload[0].payload;
+                    goToTransactions({ categoryId: cat.category_id, type: 'debit' });
                   }
                 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--app-card-border)" horizontal={false} />
@@ -349,7 +358,7 @@ const Dashboard = () => {
                       label={renderPieLabel} labelLine={false}
                       onClick={(_, idx) => {
                         const cat = expenseData[idx];
-                        if (cat) goToTransactions({ search: cat.category, type: 'debit' });
+                        if (cat) goToTransactions({ categoryId: cat.category_id, type: 'debit' });
                       }}
                       className="cursor-pointer">
                       {expenseData.map((e, i) => <Cell key={i} fill={e.fill || COLORS[i % COLORS.length]} />)}
@@ -366,8 +375,8 @@ const Dashboard = () => {
                   <BarChart data={[...expenseData].sort((a, b) => b.amount - a.amount).slice(0, 10)}
                     onClick={(data) => {
                       if (data?.activePayload?.[0]) {
-                        const cat = data.activePayload[0].payload.category;
-                        goToTransactions({ search: cat, type: 'debit' });
+                        const cat = data.activePayload[0].payload;
+                        goToTransactions({ categoryId: cat.category_id, type: 'debit' });
                       }
                     }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--app-card-border)" />
@@ -391,7 +400,7 @@ const Dashboard = () => {
                   const pct = totalExpenseSum > 0 ? ((e.amount / totalExpenseSum) * 100).toFixed(1) : 0;
                   return (
                     <div key={i} className="flex items-center justify-between text-xs cursor-pointer hover:opacity-80 transition-opacity"
-                      onClick={() => goToTransactions({ search: e.category, type: 'debit' })}
+                      onClick={() => goToTransactions({ categoryId: e.category_id, type: 'debit' })}
                       data-testid={`category-legend-${i}`}>
                       <div className="flex items-center gap-2 min-w-0 flex-1">
                         <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: e.fill || COLORS[i % COLORS.length] }} />

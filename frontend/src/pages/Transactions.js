@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -8,13 +8,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
-import { Plus, Trash, Pencil, Repeat, Sparkle, FunnelSimple, X } from '@phosphor-icons/react';
+import { Plus, Trash, Pencil, Repeat, Sparkle, FunnelSimple, X, ArrowLeft } from '@phosphor-icons/react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const Transactions = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [transactions, setTransactions] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -31,17 +32,19 @@ const Transactions = () => {
     date: new Date().toISOString().split('T')[0], description: 'Transfer'
   });
   const [potentialTransfers, setPotentialTransfers] = useState([]);
+  const [selectedTransferIdxs, setSelectedTransferIdxs] = useState(new Set());
 
   // Filters — initialized from URL params
   const [filterType, setFilterType] = useState(searchParams.get('type') || 'all');
   const [filterAccount, setFilterAccount] = useState(searchParams.get('account') || 'all');
-  const [filterCategory, setFilterCategory] = useState(searchParams.get('category') || 'all');
+  const [filterCategory, setFilterCategory] = useState(searchParams.get('categoryId') || searchParams.get('category') || 'all');
   const [filterDateFrom, setFilterDateFrom] = useState(searchParams.get('dateFrom') || '');
   const [filterDateTo, setFilterDateTo] = useState(searchParams.get('dateTo') || '');
   const [filterSearch, setFilterSearch] = useState(searchParams.get('search') || '');
   const [showFilters, setShowFilters] = useState(() => {
-    return !!(searchParams.get('account') || searchParams.get('category') || searchParams.get('dateFrom') || searchParams.get('dateTo'));
+    return !!(searchParams.get('account') || searchParams.get('categoryId') || searchParams.get('category') || searchParams.get('dateFrom') || searchParams.get('dateTo'));
   });
+  const fromDashboard = searchParams.get('from') === 'dashboard';
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadData(); }, []);
@@ -133,6 +136,7 @@ const Transactions = () => {
     try {
       const res = await axios.post(`${API}/detect-transfers`);
       setPotentialTransfers(res.data.potential_transfers || []);
+      setSelectedTransferIdxs(new Set());
       toast.success(`Found ${res.data.count} potential transfers`);
     } catch { toast.error('Failed to detect transfers'); }
   };
@@ -144,6 +148,59 @@ const Transactions = () => {
       detectTransfers();
       loadData();
     } catch { toast.error('Failed to mark transfer'); }
+  };
+
+  const markSelectedTransfers = async () => {
+    if (selectedTransferIdxs.size === 0) return;
+    let success = 0;
+    for (const idx of selectedTransferIdxs) {
+      const t = potentialTransfers[idx];
+      if (t) {
+        try {
+          await axios.post(`${API}/mark-as-transfer`, [t.txn1.id, t.txn2.id]);
+          success++;
+        } catch {}
+      }
+    }
+    toast.success(`Marked ${success} transfers`);
+    setSelectedTransferIdxs(new Set());
+    detectTransfers();
+    loadData();
+  };
+
+  const dismissTransfer = (idx) => {
+    setPotentialTransfers(prev => prev.filter((_, i) => i !== idx));
+    setSelectedTransferIdxs(prev => {
+      const next = new Set();
+      for (const i of prev) {
+        if (i < idx) next.add(i);
+        else if (i > idx) next.add(i - 1);
+      }
+      return next;
+    });
+  };
+
+  const dismissSelected = () => {
+    const toRemove = new Set(selectedTransferIdxs);
+    setPotentialTransfers(prev => prev.filter((_, i) => !toRemove.has(i)));
+    setSelectedTransferIdxs(new Set());
+  };
+
+  const toggleTransferSelect = (idx) => {
+    setSelectedTransferIdxs(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedTransferIdxs.size === potentialTransfers.length) {
+      setSelectedTransferIdxs(new Set());
+    } else {
+      setSelectedTransferIdxs(new Set(potentialTransfers.map((_, i) => i)));
+    }
   };
 
   // Filtered transactions
@@ -174,11 +231,20 @@ const Transactions = () => {
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <h2 className="font-heading text-3xl tracking-tight" style={{ color: 'var(--app-text)' }}>Transactions</h2>
-          <p className="text-sm mt-1" style={{ color: 'var(--app-text-secondary)' }}>
-            {filtered.length} of {transactions.length} transactions
-          </p>
+        <div className="flex items-center gap-3">
+          {fromDashboard && (
+            <button onClick={() => navigate('/')} data-testid="back-to-dashboard-btn"
+              className="p-2 rounded-lg border transition-colors hover:opacity-80"
+              style={{ borderColor: 'var(--app-card-border)', color: 'var(--app-text-muted)' }}>
+              <ArrowLeft size={18} />
+            </button>
+          )}
+          <div>
+            <h2 className="font-heading text-3xl tracking-tight" style={{ color: 'var(--app-text)' }}>Transactions</h2>
+            <p className="text-sm mt-1" style={{ color: 'var(--app-text-secondary)' }}>
+              {filtered.length} of {transactions.length} transactions
+            </p>
+          </div>
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button data-testid="ai-categorize-btn" onClick={handleAICategorize} disabled={categorizing}
@@ -438,39 +504,80 @@ const Transactions = () => {
         </TabsContent>
 
         <TabsContent value="transfers">
-          <div className="space-y-4">
+          <div className="space-y-3">
+            {/* Bulk actions */}
+            {potentialTransfers.length > 0 && (
+              <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: 'var(--app-card-bg)', border: '1px solid var(--app-card-border)' }}>
+                <label className="flex items-center gap-2 cursor-pointer text-sm" style={{ color: 'var(--app-text-secondary)' }}>
+                  <input type="checkbox" data-testid="select-all-transfers"
+                    checked={selectedTransferIdxs.size === potentialTransfers.length && potentialTransfers.length > 0}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded accent-[var(--app-accent)]" />
+                  Select All ({potentialTransfers.length})
+                </label>
+                {selectedTransferIdxs.size > 0 && (
+                  <>
+                    <Button onClick={markSelectedTransfers} data-testid="mark-selected-transfers-btn"
+                      className="themed-btn-primary rounded-lg text-sm h-8 px-3">
+                      <Repeat size={14} className="mr-1.5" /> Mark {selectedTransferIdxs.size} as Transfer
+                    </Button>
+                    <Button onClick={dismissSelected} data-testid="dismiss-selected-btn"
+                      className="rounded-lg text-sm h-8 px-3 border"
+                      style={{ borderColor: 'var(--app-card-border)', color: 'var(--app-text-muted)', background: 'var(--app-card-bg)' }}>
+                      <X size={14} className="mr-1.5" /> Not Transfers ({selectedTransferIdxs.size})
+                    </Button>
+                  </>
+                )}
+              </div>
+            )}
+
             {potentialTransfers.map((transfer, idx) => (
-              <div key={idx} className="themed-card rounded-lg p-5">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex-1 grid grid-cols-2 gap-4">
+              <div key={idx} className="themed-card rounded-lg p-4 transition-colors"
+                style={{ borderColor: selectedTransferIdxs.has(idx) ? 'var(--app-accent)' : undefined }}>
+                <div className="flex items-start gap-3">
+                  <input type="checkbox" data-testid={`transfer-checkbox-${idx}`}
+                    checked={selectedTransferIdxs.has(idx)}
+                    onChange={() => toggleTransferSelect(idx)}
+                    className="w-4 h-4 mt-1 rounded accent-[var(--app-accent)] shrink-0" />
+                  <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.15em] mb-1" style={{ color: 'var(--app-text-secondary)' }}>Transaction 1</div>
-                      <div className="text-sm" style={{ color: 'var(--app-text)' }}>{getAccountName(transfer.txn1.account_id)} - {transfer.txn1.description}</div>
-                      <div className="text-sm" style={{ color: transfer.txn1.transaction_type === 'credit' ? '#5C745A' : '#C06B52' }}>
+                      <div className="text-[10px] uppercase tracking-[0.15em] mb-0.5" style={{ color: 'var(--app-text-secondary)' }}>From</div>
+                      <div className="text-sm font-medium" style={{ color: 'var(--app-text)' }}>{getAccountName(transfer.txn1.account_id)}</div>
+                      <div className="text-xs truncate" style={{ color: 'var(--app-text-muted)' }}>{transfer.txn1.description}</div>
+                      <div className="text-sm font-medium mt-0.5" style={{ color: transfer.txn1.transaction_type === 'credit' ? '#5C745A' : '#C06B52' }}>
                         {transfer.txn1.transaction_type === 'credit' ? '+' : '-'}₹{transfer.txn1.amount.toFixed(2)}
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.15em] mb-1" style={{ color: 'var(--app-text-secondary)' }}>Transaction 2</div>
-                      <div className="text-sm" style={{ color: 'var(--app-text)' }}>{getAccountName(transfer.txn2.account_id)} - {transfer.txn2.description}</div>
-                      <div className="text-sm" style={{ color: transfer.txn2.transaction_type === 'credit' ? '#5C745A' : '#C06B52' }}>
+                      <div className="text-[10px] uppercase tracking-[0.15em] mb-0.5" style={{ color: 'var(--app-text-secondary)' }}>To</div>
+                      <div className="text-sm font-medium" style={{ color: 'var(--app-text)' }}>{getAccountName(transfer.txn2.account_id)}</div>
+                      <div className="text-xs truncate" style={{ color: 'var(--app-text-muted)' }}>{transfer.txn2.description}</div>
+                      <div className="text-sm font-medium mt-0.5" style={{ color: transfer.txn2.transaction_type === 'credit' ? '#5C745A' : '#C06B52' }}>
                         {transfer.txn2.transaction_type === 'credit' ? '+' : '-'}₹{transfer.txn2.amount.toFixed(2)}
                       </div>
                     </div>
                   </div>
-                  <div className="text-right shrink-0">
-                    <div className="text-xs mb-1.5 flex items-center gap-2 justify-end" style={{ color: 'var(--app-text-secondary)' }}>
-                      {transfer.date}
+                  <div className="text-right shrink-0 flex flex-col items-end gap-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs" style={{ color: 'var(--app-text-muted)' }}>{transfer.date}</span>
                       {transfer.confidence && (
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
                           transfer.confidence === 'high' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
                         }`} data-testid={`transfer-confidence-${idx}`}>{transfer.confidence}</span>
                       )}
                     </div>
-                    <Button onClick={() => markAsTransfer(transfer.txn1.id, transfer.txn2.id)}
-                      data-testid={`mark-transfer-${idx}`} className="themed-btn-primary rounded-lg text-sm">
-                      Mark as Transfer
-                    </Button>
+                    <div className="flex gap-1.5">
+                      <Button onClick={() => markAsTransfer(transfer.txn1.id, transfer.txn2.id)}
+                        data-testid={`mark-transfer-${idx}`} className="themed-btn-primary rounded-lg text-xs h-7 px-2.5">
+                        Transfer
+                      </Button>
+                      <Button onClick={() => dismissTransfer(idx)}
+                        data-testid={`dismiss-transfer-${idx}`}
+                        className="rounded-lg text-xs h-7 px-2.5 border"
+                        style={{ borderColor: 'var(--app-card-border)', color: 'var(--app-text-muted)', background: 'var(--app-card-bg)' }}>
+                        Not a Transfer
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>

@@ -454,13 +454,28 @@ const Settings = () => {
               <AndroidLogo size={20} className="inline mr-2" style={{ color: 'var(--app-accent)' }} />
               Mobile App
             </h3>
-            <p className="text-sm mb-4" style={{ color: 'var(--app-text-secondary)' }}>Install MoneyInsights on your Android device via PWA.</p>
-            <div className="flex gap-3 flex-wrap items-center">
-              <Button data-testid="download-apk-btn" className="themed-btn-primary rounded-lg"
-                onClick={() => toast.info('Use "Add to Home Screen" in your browser for a native-like experience.')}>
-                <DownloadSimple size={18} className="mr-2" /> Download APK
-              </Button>
-              <span className="text-xs px-2 py-1 rounded-full" style={{ background: 'var(--app-badge-bg)', color: 'var(--app-text-muted)' }}>Coming soon</span>
+            <p className="text-sm mb-4" style={{ color: 'var(--app-text-secondary)' }}>
+              Install MoneyInsights on your device for a native app experience.
+            </p>
+            <div className="space-y-3">
+              <div className="flex gap-3 flex-wrap items-center">
+                <Button data-testid="install-pwa-btn" className="themed-btn-primary rounded-lg"
+                  onClick={() => {
+                    if (window.deferredPrompt) {
+                      window.deferredPrompt.prompt();
+                      window.deferredPrompt.userChoice.then(() => { window.deferredPrompt = null; });
+                    } else {
+                      toast.info('Open this site in Chrome/Edge, tap the menu, and select "Install App" or "Add to Home Screen".');
+                    }
+                  }}>
+                  <DownloadSimple size={18} className="mr-2" /> Install App (PWA)
+                </Button>
+              </div>
+              <div className="text-xs space-y-1" style={{ color: 'var(--app-text-muted)' }}>
+                <p><strong>Android:</strong> Open in Chrome → Menu (3 dots) → "Add to Home Screen"</p>
+                <p><strong>iOS:</strong> Open in Safari → Share → "Add to Home Screen"</p>
+                <p><strong>Desktop:</strong> Chrome address bar → Install icon, or Menu → "Install MoneyInsights"</p>
+              </div>
             </div>
           </div>
 

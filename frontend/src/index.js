@@ -8,6 +8,12 @@ import { App as CapApp } from '@capacitor/app';
 // Set axios defaults for all requests
 axios.defaults.withCredentials = true;
 
+// PWA install prompt
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  window.deferredPrompt = e;
+});
+
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(
   <React.StrictMode>
