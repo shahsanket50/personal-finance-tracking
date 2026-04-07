@@ -1,59 +1,81 @@
-# MoneyInsights - Personal Finance Tracker + Accounting Engine
+# MoneyInsights - Personal Finance & Accounting Platform
 
-## Problem Statement
-Track personal finances across 4-5 credit cards, 2-3 bank accounts, investments, and cash transactions. Upload bank/credit card statements (PDF/CSV) and analyze spending trends, categories, and investment patterns.
-Additionally, provide a Tally-like double-entry bookkeeping system with auto-bridge so users don't enter data twice.
+## Product Overview
+A personal finance tracking application that analyzes day-to-day transactions across multiple accounts and cards via uploaded statements or email sync. Features a "Tally-like" accounting system alongside the personal finance tracker with a 2-view system (Finance Tracker View vs. Tally/Accounting View).
 
-## Architecture
-- **Frontend**: React, TailwindCSS, Shadcn UI, Phosphor Icons v2, Recharts v3
-- **Backend**: FastAPI, pdfplumber (PDF extraction), Motor (async MongoDB)
-- **Database**: MongoDB (multi-tenant with user_id)
-- **Auth**: Emergent-managed Google OAuth (auth.emergentagent.com)
-- **AI**: Gemini 2.5 Flash via emergentintegrations (auto-categorization)
-- **Email**: IMAP with Google App Passwords, [Gmail]/All Mail, FROM + SUBJECT + SINCE filters
+## Core Architecture
+- **Frontend**: React 18, TailwindCSS, Shadcn UI, Phosphor Icons, Recharts
+- **Backend**: Python FastAPI (modular routes), Motor (async MongoDB), pdfplumber, pikepdf
+- **Database**: MongoDB
+- **Auth**: Emergent-managed Google OAuth
+- **AI**: Gemini 2.5 Flash via emergentintegrations
+- **Mobile**: Capacitor 7 for Android APK
 
-## What's Implemented
+## Backend Structure (Refactored)
+```
+backend/
+├── server.py              # 55 lines — App setup, middleware, router registration
+├── database.py            # MongoDB client + db instance
+├── models.py              # All Pydantic models + default data
+├── auth.py                # get_current_user() session validator
+├── bridge.py              # Auto-bridge: transaction ↔ voucher sync
+├── helpers.py             # AI categorizer, default init, IMAP helpers
+├── pdf_parsers_simple.py  # PDF parsing with pikepdf + pdfplumber
+├── routes/
+│   ├── auth_routes.py     # Auth (session, me, logout)
+│   ├── accounts.py        # Accounts CRUD
+│   ├── categories.py      # Categories CRUD + defaults
+│   ├── transactions.py    # Transactions CRUD + transfers
+│   ├── analytics.py       # Analytics summary
+│   ├── upload.py          # PDF/CSV upload + parser builder
+│   ├── accounting.py      # Company, groups, ledgers, vouchers, reports, cash flow
+│   ├── ai.py              # AI categorization
+│   ├── backup.py          # Backup/restore + reset
+│   └── email_sync.py      # Email config + scan + per-account sync
+```
 
-### Finance Tracker (View 1)
-- [x] Google OAuth login/signup
-- [x] Multi-tenant data isolation
-- [x] 5 Themes: Light, Dark, Forest, Ocean, Sand
-- [x] Merged Dashboard with analytics, period selector, charts, legends
-- [x] Accounts CRUD with email filter, PDF password, parser config
-- [x] Email sync with preview/dry-run + auto-categorization
-- [x] Transaction CRUD with filters (type, search, account, category, date)
-- [x] **48 default categories** (10 income + 38 expense — comprehensive Indian finance set)
-- [x] Auto-restore missing default categories + orphaned reference cleanup
-- [x] **Improved AI categorization** with Indian bank-aware prompt + fuzzy matching
-- [x] Category badges with color dots in Transactions view
-- [x] AI Categorize button shows uncategorized count badge
-- [x] Upload page (PDF/CSV), Dynamic Parser Builder
-- [x] Backup/Restore (JSON)
-- [x] Settings — 3-tab layout: Finance Tracker / Accounting / Appearance & Data
+## Implemented Features
 
-### Accounting Engine (View 2 — Tally-like)
-- [x] Company management (name, GSTIN, PAN, CIN) — in Settings > Accounting
-- [x] **Financial Year selector** — auto-computed from transaction/voucher date ranges
-- [x] Indian Standard Chart of Accounts (24 default groups)
-- [x] Ledgers CRUD, Vouchers CRUD (8 types), double-entry validation
-- [x] Trial Balance, Daybook, Ledger Statement
-- [x] Profit & Loss Statement, Balance Sheet
-- [x] Auto-Bridge: Transaction → Voucher (all creation flows)
-- [x] Migration endpoint, Reset cleans accounting data
+### Finance Tracker View
+- [x] Multi-account management (bank, credit card, cash, wallet)
+- [x] Transaction CRUD with category badges
+- [x] PDF statement upload with auto-parsing (HDFC, ICICI, etc.)
+- [x] CSV import
+- [x] Email sync (IMAP/Gmail) with statement period date filtering
+- [x] AI auto-categorization (Gemini) across all 5 import flows
+- [x] Transfer detection between accounts
+- [x] Analytics dashboard (income/expense/category/monthly trends)
+- [x] 50+ default categories (Indian context)
+- [x] Backup/restore/reset
 
-### Settings Page (3 Tabs)
-- Tab 1 — **Finance Tracker**: Email config, Categories restore
-- Tab 2 — **Accounting**: Company details, FY selector, Sync to Accounting
-- Tab 3 — **Appearance & Data**: Themes, Backup/Restore, Mobile App, Danger Zone
+### Accounting (Tally) View
+- [x] Company management with FY start month
+- [x] Chart of Accounts (24 default groups, hierarchical)
+- [x] Ledger CRUD with linked accounts/categories
+- [x] Voucher CRUD (payment, receipt, journal, contra, sales, purchase)
+- [x] Auto-bridge: finance transactions ↔ accounting vouchers
+- [x] Trial Balance
+- [x] Daybook (journal of all entries)
+- [x] Profit & Loss Statement (with group-wise subtotals)
+- [x] Balance Sheet (with group-wise subtotals)
+- [x] Cash Flow Statement (Operating/Investing/Financing)
+- [x] FY-aware date defaults across all reports
+- [x] Ledger Statement
+- [x] Migration tool (transactions → vouchers)
 
-## Key DB Collections
-- `accounts`, `transactions`, `categories`, `sync_history`, `email_configs`, `processed_emails`
-- `companies`, `account_groups`, `ledgers`, `vouchers`
+### Infrastructure
+- [x] Dual-view UI with sessionStorage persistence
+- [x] Theme system (5 themes)
+- [x] Google OAuth authentication
+- [x] Print-ready report layouts
+- [x] Capacitor Android APK setup (build guide at frontend/APK_BUILD_GUIDE.md)
+- [x] CLAUDE.md for codebase documentation
 
-## Future/Backlog
-- CSV parsing support (P2)
-- Native APK generation via Capacitor (P2)
-- Google Drive API sync (P3)
-- CSV/Excel export (P3)
-- Smart AI dashboard insights (P3)
+## P0 Issues
+- None currently
+
+## Remaining Backlog
+- CSV parsing/export enhancements (P2)
+- Google Drive sync & scheduled background sync (P3)
 - GST Computation Report (P3)
+- Actual APK build in Android Studio (setup done, needs local build)
