@@ -79,3 +79,10 @@ backend/
 - Google Drive sync & scheduled background sync (P3)
 - GST Computation Report (P3)
 - Actual APK build in Android Studio (setup done, needs local build)
+
+## Supported Statement Formats
+- **Slice Small Finance Bank** (savings account) — `slice_bank` strategy
+- **Slice Credit Card** — `slice_credit` strategy
+- **HDFC Bank** — `hdfc_bank` strategy
+- **HDFC Diners / Credit Cards** — `credit_card` strategy
+- **Generic** (DD/MM/YYYY or DD-MM-YYYY with amounts) — `generic` strategy

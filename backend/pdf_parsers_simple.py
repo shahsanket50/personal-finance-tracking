@@ -117,6 +117,12 @@ class SimplePDFParser:
         text = self.extract_text(pdf_blob, password)
         results = {}
 
+        # Strategy 0: Slice bank account format (DD Mon 'YY with ₹ amounts)
+        txns = self.parse_slice_bank(text)
+        if txns:
+            results['slice_bank'] = txns
+            logger.info(f"slice_bank strategy found {len(txns)} transactions")
+
         # Strategy 1: Slice credit card format
         txns = self.parse_slice_credit(text)
         if txns:
@@ -155,6 +161,7 @@ class SimplePDFParser:
         results = {}
 
         strategies = [
+            ('slice_bank', self.parse_slice_bank),
             ('slice_credit', self.parse_slice_credit),
             ('hdfc_bank', self.parse_hdfc_bank_text),
             ('credit_card', self.parse_credit_card_statement),
@@ -180,6 +187,7 @@ class SimplePDFParser:
         """Parse using a specific named strategy"""
         text = self.extract_text(pdf_blob, password)
         strategy_map = {
+            'slice_bank': self.parse_slice_bank,
             'slice_credit': self.parse_slice_credit,
             'hdfc_bank': self.parse_hdfc_bank_text,
             'credit_card': self.parse_credit_card_statement,
@@ -187,6 +195,167 @@ class SimplePDFParser:
         }
         fn = strategy_map.get(strategy, self.parse_generic)
         return fn(text)
+
+    # ─── Strategy: Slice Bank Account Statement ────────────────────────
+    def parse_slice_bank(self, text: str) -> List[Dict]:
+        """
+        Parse Slice Small Finance Bank account statement format:
+        DD Mon 'YY  Description  REF_NO  AMOUNT  BALANCE
+        Where AMOUNT is -₹430 (debit) or ₹7.01 (credit), BALANCE is ₹40,499.52
+        Description may wrap to continuation lines (no date prefix).
+        """
+        # Quick validation: must contain Slice-specific markers
+        if '₹' not in text:
+            return []
+        # Check for the typical Slice bank header pattern
+        has_slice_header = bool(re.search(
+            r'DATE\s+DETAILS\s+REF\s*NO\.?\s+AMOUNT\s+BALANCE', text, re.IGNORECASE
+        ))
+        has_rupee_amounts = len(re.findall(r'-?₹[\d,]+(?:\.\d{1,2})?', text)) >= 4
+        if not has_slice_header and not has_rupee_amounts:
+            return []
+
+        transactions = []
+        lines = text.split('\n')
+
+        # Date pattern at start of line: DD Mon 'YY
+        date_re = re.compile(
+            r"^(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+['\u2019]?\d{2})\s+(.+)",
+            re.IGNORECASE
+        )
+        # Date range header: "01 Apr '25 - 31 Mar '26"
+        date_range_re = re.compile(
+            r"^\d{1,2}\s+\w{3}\s+['\u2019]?\d{2}\s*-\s*\d{1,2}\s+\w{3}\s+['\u2019]?\d{2}$"
+        )
+        # Page number: "1/45"
+        page_num_re = re.compile(r'^\d+/\d+$')
+
+        # Lines to skip entirely
+        skip_keywords = [
+            'Need help?', 'DATE DETAILS', 'Opening balance', 'Total credits',
+            'slice small finance', 'Customer ID', 'Phone', 'Email', 'Nominee',
+            'Address', 'Account Opening', 'Branch', 'MICR', 'IFSC',
+            'Interest earned', 'Total debits', 'Closing balance',
+        ]
+
+        # Amount at end of line: (optional_ref) (₹amount) (₹balance)
+        # Pattern: ref_no(-?₹amount)(₹balance) at line end
+        tail_re = re.compile(
+            r'(\d{8,})?\s*(-?₹[\d,]+(?:\.\d{1,2})?)\s+(₹[\d,]+(?:\.\d{1,2})?)\s*$'
+        )
+
+        current = None
+
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+
+            # Skip header/footer/page lines
+            if date_range_re.match(stripped):
+                continue
+            if page_num_re.match(stripped):
+                continue
+            if any(kw.lower() in stripped.lower() for kw in skip_keywords):
+                continue
+
+            dm = date_re.match(stripped)
+            if dm:
+                # Finalize previous transaction
+                if current:
+                    self._finalize_slice_bank_txn(current, transactions)
+
+                date_str = dm.group(1)
+                rest_of_line = dm.group(2)
+
+                # Try to find amount and balance at the end of the line
+                tail_m = tail_re.search(rest_of_line)
+                if tail_m:
+                    ref_no = tail_m.group(1) or ''
+                    amount_str = tail_m.group(2)
+                    # Description is everything before the tail match
+                    desc = rest_of_line[:tail_m.start()].strip()
+                    # If ref_no was captured in the tail but also appears in desc, clean up
+                    if ref_no and desc.endswith(ref_no):
+                        desc = desc[:-len(ref_no)].strip()
+
+                    current = {
+                        'date_str': date_str,
+                        'description': desc,
+                        'ref_no': ref_no,
+                        'amount_raw': amount_str,
+                        'has_tail': True,
+                    }
+                else:
+                    # No amount/balance found on this line — might be a wrapped line
+                    current = {
+                        'date_str': date_str,
+                        'description': rest_of_line,
+                        'ref_no': '',
+                        'amount_raw': None,
+                        'has_tail': False,
+                    }
+            elif current:
+                # Continuation line — append to description
+                # But check if this continuation line has the tail (amount + balance)
+                if not current['has_tail']:
+                    tail_m = tail_re.search(stripped)
+                    if tail_m:
+                        ref_no = tail_m.group(1) or ''
+                        amount_str = tail_m.group(2)
+                        pre_tail = stripped[:tail_m.start()].strip()
+                        current['description'] += ' ' + pre_tail
+                        current['ref_no'] = ref_no
+                        current['amount_raw'] = amount_str
+                        current['has_tail'] = True
+                        continue
+                # Plain continuation — just extend description
+                current['description'] += ' ' + stripped
+
+        # Finalize last transaction
+        if current:
+            self._finalize_slice_bank_txn(current, transactions)
+
+        return transactions
+
+    def _finalize_slice_bank_txn(self, current: Dict, transactions: List):
+        """Finalize a collected Slice bank transaction"""
+        if not current.get('amount_raw'):
+            return
+
+        amount_str = current['amount_raw']
+        clean = amount_str.replace('₹', '').replace(',', '').strip()
+        try:
+            amount = float(clean)
+        except ValueError:
+            return
+
+        txn_type = 'debit' if amount < 0 else 'credit'
+        amount = abs(amount)
+
+        date_str = current['date_str']
+        normalized = self._parse_date_flexible(date_str)
+        if not normalized:
+            return
+
+        description = current['description']
+        # Clean up: remove trailing ref numbers that might have leaked into description
+        ref_no = current.get('ref_no', '')
+        if ref_no:
+            description = description.replace(ref_no, '').strip()
+        # Remove trailing/leading hyphens and whitespace
+        description = re.sub(r'\s+', ' ', description).strip().strip('-').strip()
+
+        if not description or amount == 0:
+            return
+
+        transactions.append({
+            'date': normalized,
+            'description': description[:300],
+            'amount': amount,
+            'type': txn_type,
+            'account': self.account_name,
+        })
 
     # ─── Strategy: Slice Credit Card ─────────────────────────────────
     def parse_slice_credit(self, text: str) -> List[Dict]:
