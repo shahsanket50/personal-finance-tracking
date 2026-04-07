@@ -51,6 +51,7 @@ backend/
 - [x] Email sync (IMAP/Gmail) with statement period date filtering
 - [x] AI auto-categorization (Gemini) across all 5 import flows
 - [x] Transfer detection between accounts
+- [x] **Multi-select transfers** — Select All, batch mark, "Not a Transfer" dismiss
 - [x] Analytics dashboard (income/expense/category/monthly trends)
 - [x] 50+ default categories (Indian context)
 - [x] Backup/restore/reset
@@ -73,10 +74,13 @@ backend/
 ### Infrastructure
 - [x] AI categorization **chunked batching** (80 per chunk, no rate-limit cap)
 - [x] Dual-view UI with sessionStorage persistence
+- [x] **Top navigation bar** — replaces sidebar, tabs for main nav, burger only for mobile
+- [x] **View toggle** — Tracker/Accounting switch as button in top bar
 - [x] Theme system (5 themes)
 - [x] Google OAuth authentication
 - [x] Print-ready report layouts
 - [x] Capacitor Android APK setup (build guide at frontend/APK_BUILD_GUIDE.md)
+- [x] **PWA install** — proper Install App button in Settings with Android/iOS/Desktop instructions
 - [x] CLAUDE.md for codebase documentation
 
 ## P0 Issues
