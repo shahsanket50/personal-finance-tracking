@@ -36,8 +36,15 @@ backend/
 
 ## Implemented Features
 
-### Finance Tracker View
-- [x] Multi-account management (bank, credit card, cash, wallet)
+### Dashboard & Analytics
+- [x] Summary cards (Balance, Income, Expense, Net Savings, Savings Rate)
+- [x] **Clickable panels** — every card/chart/legend navigates to Transactions with pre-applied URL filters
+- [x] Period selector (All Time, This/Last Month, This/Last FY, Custom Range)
+- [x] **Chart type selector** — Bar / Line / Area for trend; Pie / Bar for expense breakdown
+- [x] **Pie chart percentages** — on slices (>3%) and in legend badges
+- [x] Top Spends & Top Income Sources (clickable)
+- [x] Account summary with period credits/debits
+- [x] Backup export
 - [x] Transaction CRUD with category badges
 - [x] PDF statement upload with auto-parsing (HDFC, ICICI, etc.)
 - [x] CSV import
@@ -64,6 +71,7 @@ backend/
 - [x] Migration tool (transactions → vouchers)
 
 ### Infrastructure
+- [x] AI categorization **chunked batching** (80 per chunk, no rate-limit cap)
 - [x] Dual-view UI with sessionStorage persistence
 - [x] Theme system (5 themes)
 - [x] Google OAuth authentication
