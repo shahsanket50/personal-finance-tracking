@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -13,6 +14,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const Transactions = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [transactions, setTransactions] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -30,15 +32,18 @@ const Transactions = () => {
   });
   const [potentialTransfers, setPotentialTransfers] = useState([]);
 
-  // Filters
-  const [filterType, setFilterType] = useState('all');
-  const [filterAccount, setFilterAccount] = useState('all');
-  const [filterCategory, setFilterCategory] = useState('all');
-  const [filterDateFrom, setFilterDateFrom] = useState('');
-  const [filterDateTo, setFilterDateTo] = useState('');
-  const [filterSearch, setFilterSearch] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
+  // Filters — initialized from URL params
+  const [filterType, setFilterType] = useState(searchParams.get('type') || 'all');
+  const [filterAccount, setFilterAccount] = useState(searchParams.get('account') || 'all');
+  const [filterCategory, setFilterCategory] = useState(searchParams.get('category') || 'all');
+  const [filterDateFrom, setFilterDateFrom] = useState(searchParams.get('dateFrom') || '');
+  const [filterDateTo, setFilterDateTo] = useState(searchParams.get('dateTo') || '');
+  const [filterSearch, setFilterSearch] = useState(searchParams.get('search') || '');
+  const [showFilters, setShowFilters] = useState(() => {
+    return !!(searchParams.get('account') || searchParams.get('category') || searchParams.get('dateFrom') || searchParams.get('dateTo'));
+  });
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
@@ -162,6 +167,7 @@ const Transactions = () => {
   const clearFilters = () => {
     setFilterType('all'); setFilterAccount('all'); setFilterCategory('all');
     setFilterDateFrom(''); setFilterDateTo(''); setFilterSearch('');
+    setSearchParams({});
   };
 
   return (

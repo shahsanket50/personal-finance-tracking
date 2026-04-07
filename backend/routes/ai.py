@@ -26,7 +26,7 @@ async def ai_categorize_transactions(
     if transaction_ids:
         query["id"] = {"$in": transaction_ids}
 
-    txns = await db.transactions.find(query, {"_id": 0}).to_list(500)
+    txns = await db.transactions.find(query, {"_id": 0}).to_list(5000)
     if not txns:
         return {"message": "No uncategorized transactions found", "categorized_count": 0}
 

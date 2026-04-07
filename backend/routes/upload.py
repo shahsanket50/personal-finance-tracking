@@ -89,7 +89,7 @@ async def upload_statement(
                 uncat = await db.transactions.find(
                     {"user_id": uid, "account_id": account_id, "category_id": None, "is_transfer": False},
                     {"_id": 0}
-                ).to_list(500)
+                ).to_list(5000)
                 if uncat:
                     categorized_count = await ai_categorize_batch(uid, uncat, cats)
             except Exception as e:
@@ -271,7 +271,7 @@ async def import_csv(
                 uncat = await db.transactions.find(
                     {"user_id": uid, "account_id": account_id, "category_id": None, "is_transfer": False},
                     {"_id": 0}
-                ).to_list(500)
+                ).to_list(5000)
                 if uncat:
                     categorized_count = await ai_categorize_batch(uid, uncat, cats)
             except Exception as e:

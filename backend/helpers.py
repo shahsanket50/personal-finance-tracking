@@ -106,22 +106,30 @@ def is_subject_before_date(subject: str, cutoff_date) -> bool:
 
 
 async def ai_categorize_batch(uid: str, txns: list, categories: list) -> int:
-    """Categorize a batch of transactions using AI. Returns count categorized."""
+    """Categorize a batch of transactions using AI. Returns count categorized.
+    Processes in chunks of 80 to avoid hitting LLM context limits."""
     import os
     import uuid
 
     if not txns or not categories:
         return 0
 
-    category_names = [c['name'] for c in categories if c['name'] != 'Transfer']
     category_map = {c['name'].lower().strip(): c['id'] for c in categories}
 
     income_cats = ', '.join([c['name'] for c in categories if c['category_type'] == 'income'])
     expense_cats = ', '.join([c['name'] for c in categories if c['category_type'] == 'expense' and c['name'] != 'Transfer'])
 
-    descriptions = [{"id": t["id"], "desc": t["description"], "amount": t["amount"], "type": t["transaction_type"]} for t in txns[:100]]
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+    import json as json_mod
 
-    prompt = f"""You are an expert Indian personal finance categorizer. Categorize each transaction into EXACTLY ONE of these categories:
+    total_categorized = 0
+    chunk_size = 80
+
+    for start in range(0, len(txns), chunk_size):
+        chunk = txns[start:start + chunk_size]
+        descriptions = [{"id": t["id"], "desc": t["description"], "amount": t["amount"], "type": t["transaction_type"]} for t in chunk]
+
+        prompt = f"""You are an expert Indian personal finance categorizer. Categorize each transaction into EXACTLY ONE of these categories:
 
 INCOME categories: {income_cats}
 EXPENSE categories: {expense_cats}
@@ -139,45 +147,45 @@ Return ONLY a valid JSON array. No markdown, no explanation. Each object: {{"id"
 Transactions to categorize:
 {descriptions}"""
 
-    from emergentintegrations.llm.chat import LlmChat, UserMessage
-    import json as json_mod
-
-    chat = LlmChat(
-        api_key=os.environ.get("EMERGENT_LLM_KEY", ""),
-        session_id=f"categorize_{uid}_{uuid.uuid4().hex[:8]}",
-        system_message="You are a financial transaction categorizer for Indian bank/credit card statements. Return only valid JSON arrays. No markdown formatting."
-    )
-    chat.with_model("gemini", "gemini-2.5-flash")
-
-    response = await chat.send_message(UserMessage(text=prompt))
-
-    json_text = response.strip()
-    if "```json" in json_text:
-        json_text = json_text.split("```json")[1].split("```")[0].strip()
-    elif "```" in json_text:
-        json_text = json_text.split("```")[1].split("```")[0].strip()
-
-    categorizations = json_mod.loads(json_text)
-
-    categorized_count = 0
-    for item in categorizations:
-        txn_id = item.get("id")
-        cat_name = item.get("category", "").lower().strip()
-        cat_id = category_map.get(cat_name)
-        if not cat_id:
-            for k, v in category_map.items():
-                if cat_name in k or k in cat_name:
-                    cat_id = v
-                    break
-        if txn_id and cat_id:
-            result = await db.transactions.update_one(
-                {"id": txn_id, "user_id": uid},
-                {"$set": {"category_id": cat_id}}
+        try:
+            chat = LlmChat(
+                api_key=os.environ.get("EMERGENT_LLM_KEY", ""),
+                session_id=f"categorize_{uid}_{uuid.uuid4().hex[:8]}",
+                system_message="You are a financial transaction categorizer for Indian bank/credit card statements. Return only valid JSON arrays. No markdown formatting."
             )
-            if result.modified_count > 0:
-                categorized_count += 1
+            chat.with_model("gemini", "gemini-2.5-flash")
 
-    return categorized_count
+            response = await chat.send_message(UserMessage(text=prompt))
+
+            json_text = response.strip()
+            if "```json" in json_text:
+                json_text = json_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in json_text:
+                json_text = json_text.split("```")[1].split("```")[0].strip()
+
+            categorizations = json_mod.loads(json_text)
+
+            for item in categorizations:
+                txn_id = item.get("id")
+                cat_name = item.get("category", "").lower().strip()
+                cat_id = category_map.get(cat_name)
+                if not cat_id:
+                    for k, v in category_map.items():
+                        if cat_name in k or k in cat_name:
+                            cat_id = v
+                            break
+                if txn_id and cat_id:
+                    result = await db.transactions.update_one(
+                        {"id": txn_id, "user_id": uid},
+                        {"$set": {"category_id": cat_id}}
+                    )
+                    if result.modified_count > 0:
+                        total_categorized += 1
+        except Exception as e:
+            logger.warning(f"AI categorize chunk {start}-{start+chunk_size} failed: {e}")
+            continue
+
+    return total_categorized
 
 
 async def log_sync(user_id, account_id, account_name, status, imported, skipped, error=None, files=None, filter_used=None, emails_matched=0):

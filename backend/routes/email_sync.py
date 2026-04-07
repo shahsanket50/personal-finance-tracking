@@ -216,7 +216,7 @@ async def scan_email_for_statements(user: Dict = Depends(get_current_user)):
             uncategorized = await db.transactions.find(
                 {"user_id": uid, "category_id": None, "is_transfer": False},
                 {"_id": 0}
-            ).to_list(500)
+            ).to_list(5000)
             if uncategorized:
                 categorized_count = await ai_categorize_batch(uid, uncategorized, categories)
         except Exception as e:
@@ -548,7 +548,7 @@ async def sync_account_email(account_id: str, user: Dict = Depends(get_current_u
             uncategorized = await db.transactions.find(
                 {"user_id": uid, "account_id": account_id, "category_id": None, "is_transfer": False},
                 {"_id": 0}
-            ).to_list(500)
+            ).to_list(5000)
             if uncategorized:
                 categorized_count = await ai_categorize_batch(uid, uncategorized, categories)
         except Exception as e:
