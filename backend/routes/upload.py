@@ -1,4 +1,7 @@
 import logging
+import os
+from datetime import datetime
+import boto3
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from typing import Dict
 from database import db
@@ -26,6 +29,16 @@ async def upload_statement(
     try:
         contents = await file.read()
         logger.info(f"Processing PDF: {file.filename}, Size: {len(contents)} bytes")
+
+        s3_bucket = os.environ.get("AWS_S3_BUCKET")
+        if s3_bucket:
+            try:
+                s3_client = boto3.client("s3")
+                s3_key = f"uploads/{user['user_id']}/{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{file.filename}"
+                s3_client.put_object(Bucket=s3_bucket, Key=s3_key, Body=contents)
+                logger.info(f"Uploaded {file.filename} to s3://{s3_bucket}/{s3_key}")
+            except Exception as s3_err:
+                logger.warning(f"S3 upload failed (non-fatal): {s3_err}")
 
         account = await db.accounts.find_one({"id": account_id, "user_id": user["user_id"]})
         if not account:
@@ -228,6 +241,17 @@ async def import_csv(
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
     try:
         contents = await file.read()
+
+        s3_bucket = os.environ.get("AWS_S3_BUCKET")
+        if s3_bucket:
+            try:
+                s3_client = boto3.client("s3")
+                s3_key = f"uploads/{user['user_id']}/{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{file.filename}"
+                s3_client.put_object(Bucket=s3_bucket, Key=s3_key, Body=contents)
+                logger.info(f"Uploaded {file.filename} to s3://{s3_bucket}/{s3_key}")
+            except Exception as s3_err:
+                logger.warning(f"S3 upload failed (non-fatal): {s3_err}")
+
         csv_text = contents.decode('utf-8')
         lines = csv_text.strip().split('\n')
         if len(lines) < 2:

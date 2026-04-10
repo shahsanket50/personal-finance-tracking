@@ -3,6 +3,8 @@ from dotenv import load_dotenv
 from pathlib import Path
 from starlette.middleware.cors import CORSMiddleware
 import logging
+import os
+from datetime import datetime
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -44,11 +46,15 @@ app.include_router(email_sync_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=["https://money-insights-82.preview.emergentagent.com", "http://localhost:3000"],
+    allow_origins=os.environ.get("ALLOWED_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
